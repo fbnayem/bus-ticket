@@ -1,0 +1,838 @@
+/* ---------------------------------------------------------------------------
+   Typefaces.
+
+   Bengali is set in Noto Sans Bengali — chosen because it is VARIABLE, so one
+   107 KB file carries every weight from 400 to 700. Hind Siliguri is the more
+   common choice in Bangladeshi products and reads well, but it ships a separate
+   file per weight; four weights across the Bengali and Latin ranges is twelve
+   requests against one. On the 4G this market actually runs on, that decides it.
+
+   The unicode-range is deliberately narrow. An English reader never downloads
+   the Bengali face at all, and a Bangla page falls back to the system Latin
+   stack for the figures and Latin words mixed into Bangla sentences — which is
+   most of them, because fares, seat numbers, times and PNRs all stay Latin.
+--------------------------------------------------------------------------- */
+/* Typefaces are declared in app/fonts.ts via next/font/local, which self-hosts
+   them, fingerprints the URLs and generates metric-matched fallback faces so a
+   swap on a slow connection does not reflow the page. The families arrive here
+   as --font-bangla and --font-latin. */
+
+/* ---------------------------------------------------------------------------
+   Design tokens.
+   BOARD & STUB.
+
+   Two artefacts already govern this business and neither is software: the
+   painted board above the counter, and the stub you actually buy. So the
+   platform is a board that issues stubs — deep enamel-green chrome, white
+   plates RULED rather than shadowed, and one chrome-yellow mark that means
+   "this one, here" and nothing else.
+
+   The load-bearing decision is a demotion. Green used to be the brand: link
+   colour, button fill, AND the "balanced/ok" semantic — #0B6E4F and #14795C
+   sitting four points apart, so on a settlement screen a brand pill and a
+   Balanced pill were the same green. Green is now EITHER painted structure
+   (--field, chrome, never a status) or arrival (--ok, a resolved fact, never a
+   company colour). It can no longer be both, which is what lets a green stamp
+   mean something.
+
+   The second decision is a fourth semantic. Most things wearing the warn colour
+   today are not warnings — PAYMENT_PENDING, REFUND_PENDING, a seat held by
+   another buyer, a recharge requested, a settlement in review. Rendering those
+   amber tells a passenger their money may have gone wrong at the exact moment
+   the honest message is "the webhook has not landed yet". --inflight carries
+   waiting; amber is now rare and means a human is genuinely needed.
+
+   FILL VERSUS MARK is the law that keeps the two apart. Chrome yellow is the
+   only saturated fill in the system — one primary action per screen, the
+   selected seat, the draining countdown. Every semantic renders as a MARK
+   instead: a 3px left rule plus coloured text on a barely-tinted ground, never
+   a solid block. So a warning and a primary action are never the same kind of
+   object even when their hues are cousins.
+--------------------------------------------------------------------------- */
+:root {
+  /* -- painted structure ------------------------------------------------- */
+  --field:        #0B4A38;   /* chrome only: header, rail spine, ticket head  */
+  --field-600:    #0E5B45;
+  --field-tint:   #E3EDE8;
+
+  /* -- the one saturated fill -------------------------------------------- */
+  --mark:         #FFB300;
+  --mark-600:     #E8A200;
+  --mark-ink:     #1E1500;   /* text on the mark is never white — 9.8:1       */
+  --mark-tint:    #FFF4DA;
+
+  /* -- surfaces ---------------------------------------------------------- */
+  --ground:       #EEF1EC;   /* the board: cool green-grey, ~2% chroma        */
+  --plate:        #FFFFFF;   /* the enamel surface every panel is painted on  */
+  --plate-2:      #F6F8F5;
+  --sunken:       rgba(16,32,26,.05);
+
+  /* -- ink: three steps, because signage systems do not have six greys ---- */
+  --ink:          #10201A;   /* 16.9:1 on plate                               */
+  --ink-2:        #37473F;
+  --muted:        #64726A;   /* 4.9:1 — the floor for provenance text         */
+
+  /* -- drawn lines. Heavier than the SaaS default because a painted board's
+        lines are drawn, not implied — and a 1px #E5E5E5 rule genuinely
+        vanishes on a cheap Android LCD in daylight. --------------------- */
+  --rule:         #C9D0C6;
+  --rule-strong:  #9FAC9B;
+
+  /* -- semantics. Four, each meaning exactly one thing. ------------------- */
+  --ok:           #0F7A4E;   /* landed: ticketed, boarded, balanced, settled  */
+  --ok-tint:      #E1F0E6;
+  --inflight:     #4F55BD;   /* waiting on something external, not an error   */
+  --inflight-tint:#E9EAFA;
+  --warn:         #8A4A00;   /* a human is needed soon                        */
+  --warn-tint:    #F6E6D2;
+  --danger:       #B01B0F;   /* destructive, failed, irreversible             */
+  --danger-tint:  #F8E3E0;
+
+  /* -- quarantined: a seat TYPE, not a status, so it composes with state --- */
+  --plum:         #8E2F72;
+
+  /* -- quarantined: third-party marks must never read as platform semantics
+        (an orange provider tile is not a warning) ------------------------ */
+  --provider-bkash: #E2136E;
+  --provider-nagad: #EE7623;
+
+  /* -- form ------------------------------------------------------------- */
+  --radius:    4px;          /* a painted plate has a small radius; 10px reads SaaS */
+  --radius-sm: 2px;
+  /* Separation is a drawn rule plus ground. Elevation survives only for
+     surfaces that genuinely float, so it means something again. */
+  --shadow-1: none;
+  --shadow-2: 0 -8px 24px -18px rgba(16,32,26,.5);
+
+  /* -- type. Anek Latin and Anek Bangla are one superfamily with shared
+        vertical metrics and a shared skeleton, so a bilingual line does not
+        wobble and equal dignity is a property of the typeface rather than
+        something hand-tuned per component. Bengali is listed first so its
+        unicode-range wins for Bengali codepoints and Latin falls through. -- */
+  /* Bengali first so its unicode-range claims Bengali codepoints and ৳; every
+     Latin character falls straight through to the next family. */
+  --sans: var(--font-bangla), var(--font-latin), system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  /* The condensed board voice: route names, departure times, figures at size.
+     A terminal board condenses rather than shrinks, which is why this is a
+     width setting and not a smaller font-size. */
+  --board: var(--font-latin), system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Script-relative sizing. Bengali conjuncts stack and carry more detail
+     below the headline than Latin, so the same nominal size crowds sooner. */
+  --script-size: 1;
+  --script-leading: 0;
+
+  --header-h: 60px;
+  /* The smallest thing a finger may be asked to hit. Used, not aspired to. */
+  --touch: 48px;
+
+  /* ---------------------------------------------------------------------
+     Compatibility aliases. Sixty-odd pages across seven applications name
+     the old tokens; repointing them here migrates every screen at once and
+     keeps the diff reviewable, instead of a rename that would touch every
+     file and hide the actual colour decision inside the churn.
+  --------------------------------------------------------------------- */
+  --brand:        var(--field);
+  --brand-600:    var(--field-600);
+  --brand-700:    var(--field);
+  --brand-tint:   var(--field-tint);
+  --accent:       var(--mark);
+  --accent-600:   var(--mark-600);
+  --accent-tint:  var(--mark-tint);
+  --surface:      var(--plate);
+  --surface-2:    var(--plate-2);
+  --line:         var(--rule);
+  --line-2:       var(--rule-strong);
+}
+
+/* Set once on <html> by the server, so this never flashes. */
+:root[data-lang='bn'] {
+  --script-size: 1.02;
+  --script-leading: .18;   /* Bengali wants 1.75 against Latin's ~1.55 */
+}
+
+/* Dark mode. The field LIFTS rather than darkens: on a near-black ground the
+   frame must stay the figure, so chrome is lighter than the page instead of
+   inverting the relationship. The plate is one value step above the ground
+   rather than shadow-lifted, because box-shadow is unreliable at low contrast
+   on the cheap LCDs this audience carries. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --field:        #0F5C46;
+    --field-600:    #147055;
+    --field-tint:   #12241E;
+
+    --mark:         #FFC233;
+    --mark-600:     #FFD166;
+    --mark-ink:     #1E1500;
+    --mark-tint:    #2C2109;
+
+    --ground:       #0D1512;
+    --plate:        #161F1B;
+    --plate-2:      #1C2621;
+    --sunken:       rgba(232,239,233,.05);
+
+    --ink:          #E8EFE9;
+    --ink-2:        #A9B8B0;
+    --muted:        #7F8F87;
+
+    --rule:         #2A3833;
+    --rule-strong:  #3D4F48;
+
+    --ok:           #3FBE87;
+    --ok-tint:      #0E2A1F;
+    --inflight:     #8E93F0;
+    --inflight-tint:#1B1D3A;
+    --warn:         #E39A4A;
+    --warn-tint:    #2A1C0B;
+    --danger:       #F2867A;
+    --danger-tint:  #2E1310;
+
+    --plum:         #D384BC;
+
+    --shadow-1: none;
+    --shadow-2: 0 -8px 24px -18px rgba(0,0,0,.8);
+  }
+}
+
+/* The explicit toggle must win in both directions, so the same values are
+   restated here rather than left to the media query alone. */
+:root[data-theme="dark"] {
+  --field: #0F5C46; --field-600: #147055; --field-tint: #12241E;
+  --mark: #FFC233; --mark-600: #FFD166; --mark-ink: #1E1500; --mark-tint: #2C2109;
+  --ground: #0D1512; --plate: #161F1B; --plate-2: #1C2621; --sunken: rgba(232,239,233,.05);
+  --ink: #E8EFE9; --ink-2: #A9B8B0; --muted: #7F8F87;
+  --rule: #2A3833; --rule-strong: #3D4F48;
+  --ok: #3FBE87; --ok-tint: #0E2A1F;
+  --inflight: #8E93F0; --inflight-tint: #1B1D3A;
+  --warn: #E39A4A; --warn-tint: #2A1C0B;
+  --danger: #F2867A; --danger-tint: #2E1310;
+  --plum: #D384BC;
+  --shadow-1: none; --shadow-2: 0 -8px 24px -18px rgba(0,0,0,.8);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  /* 16px and never 15. Below 16px iOS Safari zooms the viewport on every input
+     focus — which is why /login and /checkout jumped — and Bengali starts
+     losing conjunct counters. */
+  font-size: calc(16px * var(--script-size));
+  line-height: calc(1.5 + var(--script-leading));
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 { margin: 0; line-height: 1.2; letter-spacing: -.012em; text-wrap: balance; }
+
+/* ---------------------------------------------------------------------------
+   Bengali typographic corrections.
+
+   Two things break if this is skipped, and both look like sloppiness rather
+   than a bug:
+
+   1. LETTER-SPACING IS DESTRUCTIVE IN BENGALI. Conjuncts (যুক্তাক্ষর) are single
+      shaped clusters; prising them apart with tracking, positive or negative,
+      makes correctly-spelled words look misspelt. Every tracked rule in this
+      stylesheet is therefore neutralised for Bangla.
+
+   2. BENGALI HAS NO LETTER CASE. Every small-caps label here — table headers,
+      metric keys, the seat-map's "FRONT" — uses text-transform plus tracking to
+      signal "this is a label, not content". In Bangla that device is invisible:
+      the text simply renders unchanged and the hierarchy silently disappears.
+      Weight and colour carry it instead.
+--------------------------------------------------------------------------- */
+:root[data-lang='bn'] h1,
+:root[data-lang='bn'] h2,
+:root[data-lang='bn'] h3,
+:root[data-lang='bn'] h4,
+:root[data-lang='bn'] .pill,
+:root[data-lang='bn'] .trip-time,
+:root[data-lang='bn'] .trip-price,
+:root[data-lang='bn'] .tile .n { letter-spacing: normal; }
+
+:root[data-lang='bn'] .bus-front,
+:root[data-lang='bn'] table.data th,
+:root[data-lang='bn'] .tile .k {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 700;
+  font-size: .8rem;
+}
+
+/* Bengali sits lower relative to the box than Latin, so uppercase-height
+   alignments drift. Nudged rather than re-laid-out. */
+:root[data-lang='bn'] .step-dot,
+:root[data-lang='bn'] .legend-swatch { transform: translateY(-.5px); }
+h1 { font-size: clamp(1.6rem, 3.2vw, 2.1rem); font-weight: 680; }
+h2 { font-size: 1.28rem; font-weight: 660; }
+h3 { font-size: 1.04rem; font-weight: 660; }
+p  { margin: 0 0 .8rem; }
+a  { color: var(--brand); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* ------------------------------------------------------------------ layout */
+.container { width: 100%; max-width: 1120px; margin: 0 auto; padding: 0 1rem; }
+.container-narrow { width: 100%; max-width: 780px; margin: 0 auto; padding: 0 1rem; }
+.stack   { display: flex; flex-direction: column; gap: 1rem; }
+.stack-sm{ display: flex; flex-direction: column; gap: .5rem; }
+.row     { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.spacer  { flex: 1 }
+.grid-2  { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+@media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+
+.page { padding: 1.5rem 0 4rem; }
+.muted { color: var(--muted); }
+.small { font-size: .82rem; }
+.mono  { font-family: var(--mono); }
+.tnum  { font-variant-numeric: tabular-nums; }
+.center{ text-align: center; }
+
+/* ------------------------------------------------------------------ header */
+/* THE FASCIA. The painted board above the counter: a deep enamel plane that
+   says where you are, with the white plates hung beneath it. This is why green
+   was demoted from brand to structure — as chrome it can go dark enough to
+   carry white at 10.2:1, which the old emerald could not. */
+.site-header {
+  position: sticky; top: 0; z-index: 50;
+  height: var(--header-h);
+  background: var(--field);
+  border-bottom: 0;
+  color: #fff;
+}
+.site-header .inner { display: flex; align-items: center; gap: 1.25rem; height: 100%; }
+.brandmark {
+  display: flex; align-items: center; gap: .5rem;
+  font-family: var(--board); font-stretch: 88%;
+  font-weight: 750; color: #fff; font-size: 1.12rem; letter-spacing: .01em;
+}
+.brandmark:hover { text-decoration: none; color: #fff; }
+.brandmark svg { display: block; }
+.site-nav { display: flex; gap: .25rem; margin-left: auto; }
+.site-nav a {
+  color: rgba(255,255,255,.82); font-size: .9rem; font-weight: 550;
+  padding: .4rem .65rem; border-radius: var(--radius-sm);
+}
+.site-nav a:hover { background: rgba(255,255,255,.12); text-decoration: none; color: #fff; }
+/* The current page is marked, not filled — chrome yellow stays the property of
+   the one action on the screen. */
+.site-nav a[aria-current="page"] {
+  color: #fff; background: rgba(255,255,255,.14);
+  box-shadow: inset 0 -2px 0 var(--mark);
+}
+
+/* Below this width the links live in the bottom bar instead. Shrinking them to
+   fit was the old behaviour and it wrapped to two lines in Bangla. */
+@media (max-width: 760px) { .site-nav { display: none; } }
+
+/* ---------------------------------------------------------- bottom tab bar */
+.mobilenav {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 55;
+  display: none; align-items: stretch;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (max-width: 760px) { .mobilenav { display: flex; } }
+
+.mobilenav-tab {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .18rem; padding: .45rem .2rem .5rem;
+  min-height: var(--touch);
+  color: var(--muted); font-size: .68rem; font-weight: 600;
+  text-decoration: none; text-align: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobilenav-tab:hover { text-decoration: none; }
+.mobilenav-icon { display: block; width: 22px; height: 22px; }
+.mobilenav-icon svg { width: 100%; height: 100%; display: block; }
+.mobilenav-label {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  line-height: 1.25;
+}
+.mobilenav-tab[aria-current="page"] { color: var(--brand); }
+/* State is not carried by colour alone — a bar above the active tab reads for a
+   colour-blind passenger and in direct sunlight, where hue washes out first. */
+.mobilenav-tab[aria-current="page"]::before {
+  content: ''; position: absolute; top: 0; width: 26px; height: 2.5px;
+  border-radius: 0 0 3px 3px; background: var(--brand);
+}
+.mobilenav-tab { position: relative; }
+
+/* The bar floats over the page, so the page needs room to end above it. */
+@media (max-width: 760px) {
+  body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* ------------------------------------------------------------ language pair
+   Both languages always visible, never a dropdown. A hidden option would say
+   English is the product's real state and Bangla an accommodation — which is
+   precisely the posture every competitor in this market takes, and the reason
+   none of them has a Bangla interface at all.
+--------------------------------------------------------------------------- */
+/* On the fascia, so it is drawn in the fascia's own values rather than the
+   plate's — a white pill on enamel green would read as a control that had
+   fallen off a card. */
+.langswitch {
+  display: inline-flex; align-items: center;
+  border: 1px solid rgba(255,255,255,.3); border-radius: var(--radius-sm);
+  padding: 2px; gap: 2px; background: rgba(0,0,0,.16);
+  flex: none;
+}
+.langswitch-opt {
+  font: inherit; font-size: .82rem; font-weight: 620; line-height: 1;
+  padding: .34rem .58rem; border: 0; border-radius: 2px;
+  background: transparent; color: rgba(255,255,255,.72); cursor: pointer;
+  min-height: 30px;
+}
+.langswitch-opt:hover { color: #fff; }
+.langswitch-opt[aria-pressed='true'] { background: #fff; color: var(--field); }
+@media (max-width: 720px) { .langswitch-opt { padding: .3rem .5rem; font-size: .76rem; } }
+
+/* -------------------------------------------------------------------- card */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
+}
+.card-pad { padding: 1.1rem; }
+.card-head { padding: .85rem 1.1rem; border-bottom: 1px solid var(--line); font-weight: 640; }
+
+/* ------------------------------------------------------------------ button */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
+  font: inherit; font-weight: 620; font-size: .92rem;
+  padding: .62rem 1.1rem; border-radius: var(--radius-sm);
+  border: 1px solid transparent; cursor: pointer;
+  background: var(--surface-2); color: var(--ink);
+  transition: background .12s ease, border-color .12s ease, transform .06s ease;
+  text-decoration: none;
+}
+.btn:hover { text-decoration: none; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.btn-primary  { background: var(--accent); color: #21160A; border-color: var(--accent); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-600); border-color: var(--accent-600); }
+.btn-brand    { background: var(--brand); color: #fff; border-color: var(--brand); }
+.btn-brand:hover:not(:disabled) { background: var(--brand-600); }
+.btn-ghost    { background: transparent; border-color: var(--line-2); color: var(--ink-2); }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+.btn-danger   { background: transparent; border-color: var(--danger); color: var(--danger); }
+.btn-danger:hover:not(:disabled) { background: var(--danger-tint); }
+.btn-sm { padding: .38rem .7rem; font-size: .82rem; }
+.btn-lg { padding: .78rem 1.4rem; font-size: 1rem; }
+.btn-block { width: 100%; }
+
+/* On a touch screen every control meets the floor, including the small ones.
+   Pointer-coarse rather than a width query: a 1280px tablet is still a finger. */
+@media (pointer: coarse) {
+  .btn, .input, .select { min-height: var(--touch); }
+  .btn-sm { min-height: 36px; }
+}
+
+/* ------------------------------------------------------------------- forms */
+.field { display: flex; flex-direction: column; gap: .28rem; }
+.label { font-size: .8rem; font-weight: 600; color: var(--ink-2); }
+.input, .select {
+  font: inherit; font-size: .95rem;
+  padding: .6rem .7rem;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  width: 100%;
+}
+.input:focus, .select:focus { border-color: var(--brand); outline: none; box-shadow: 0 0 0 3px var(--brand-tint); }
+.input::placeholder { color: var(--muted); }
+.hint { font-size: .78rem; color: var(--muted); }
+.err  { font-size: .8rem; color: var(--danger); }
+
+/* ------------------------------------------------------- the search couplet
+   From and To are one decision, not two fields, and the swap control belongs
+   between them. Stacked on a phone it becomes a round button straddling the
+   seam — which is also where a thumb expects it, rather than a full-width bar
+   that reads like a third destination.
+--------------------------------------------------------------------------- */
+.swap-btn {
+  min-height: 40px; padding: 0 .7rem; align-self: end; margin-bottom: 1px;
+}
+@media (max-width: 720px) {
+  .search-grid { grid-template-columns: 1fr !important; }
+  .swap-btn {
+    width: var(--touch); height: var(--touch); min-height: var(--touch);
+    padding: 0; border-radius: 50%;
+    justify-self: end; align-self: center;
+    margin: calc(var(--touch) / -2 - 2px) .6rem;
+    position: relative; z-index: 1;
+    background: var(--surface); box-shadow: var(--shadow-1);
+    font-size: 1.05rem;
+  }
+}
+
+/* ------------------------------------------------------------------- pills */
+.pill {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: .72rem; font-weight: 620; letter-spacing: .01em;
+  padding: .2rem .5rem; border-radius: 999px;
+  background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line);
+  white-space: nowrap;
+}
+/* FILL VERSUS MARK. Chrome yellow is the only saturated fill in the system, so
+   a status never renders as a solid block — it is a 3px left rule plus coloured
+   text on a barely-tinted ground. That way a warning and a primary action are
+   never the same kind of object, even when their hues are cousins. The rule
+   also means state survives greyscale printing and a colour-blind reader. */
+.pill-ok, .pill-warn, .pill-danger, .pill-brand, .pill-inflight {
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  border-left-width: 3px; border-left-style: solid;
+  padding-left: .45rem;
+}
+.pill-ok       { background: var(--ok-tint);       color: var(--ok);       border-left-color: var(--ok); }
+.pill-warn     { background: var(--warn-tint);     color: var(--warn);     border-left-color: var(--warn); }
+.pill-danger   { background: var(--danger-tint);   color: var(--danger);   border-left-color: var(--danger); }
+.pill-brand    { background: var(--field-tint);    color: var(--field);    border-left-color: var(--field); }
+/* Waiting on something external that has neither resolved nor failed. */
+.pill-inflight { background: var(--inflight-tint); color: var(--inflight); border-left-color: var(--inflight); }
+
+/* ------------------------------------------------------------------ notice */
+.notice { border-radius: var(--radius-sm); padding: .7rem .85rem; font-size: .87rem; border: 1px solid; }
+.notice-info   { background: var(--brand-tint); border-color: transparent; color: var(--brand-700); }
+.notice-warn   { background: var(--warn-tint); border-color: transparent; color: var(--warn); }
+.notice-danger { background: var(--danger-tint); border-color: transparent; color: var(--danger); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .notice-info { color: var(--brand-700); }
+}
+
+/* ----------------------------------------------------------------- stepper */
+.stepper { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.step { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--muted); }
+.step-dot {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: .68rem; font-weight: 700;
+  background: var(--surface-2); color: var(--muted); border: 1px solid var(--line-2);
+}
+.step.done .step-dot { background: var(--brand); color: #fff; border-color: var(--brand); }
+.step.active .step-dot { background: var(--accent); color: #21160A; border-color: var(--accent); }
+.step.active { color: var(--ink); font-weight: 620; }
+.step-line { width: 18px; height: 1px; background: var(--line-2); }
+
+/* -------------------------------------------------------------- trip cards */
+.trip { display: grid; grid-template-columns: 1fr auto; gap: 1rem; padding: 1rem 1.1rem; }
+@media (max-width: 700px) { .trip { grid-template-columns: 1fr; } }
+.trip-time { font-size: 1.22rem; font-weight: 680; letter-spacing: -.02em; }
+.trip-arrow { color: var(--muted); }
+.trip-price { font-size: 1.3rem; font-weight: 700; letter-spacing: -.02em; text-align: right; }
+.trip-right { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: .6rem; }
+@media (max-width: 700px) { .trip-right { align-items: stretch; } .trip-price { text-align: left; } }
+
+.amenity { font-size: .72rem; color: var(--muted); border: 1px solid var(--line); padding: .12rem .4rem; border-radius: 4px; }
+
+/* ---------------------------------------------------------------- seat map */
+.bus {
+  border: 2px solid var(--line-2);
+  border-radius: 16px 16px 10px 10px;
+  padding: .9rem;
+  background: var(--surface);
+  max-width: 340px;
+}
+.bus-front {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: .7rem; margin-bottom: .7rem;
+  border-bottom: 1px dashed var(--line-2);
+  font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em;
+}
+.wheel { width: 22px; height: 22px; border: 2px solid var(--line-2); border-radius: 50%; position: relative; }
+.wheel::after { content:""; position:absolute; inset:6px; border-radius:50%; background: var(--line-2); }
+/* Seats were 34px square. A finger is not 34px, and this is the one control in
+   the product where a mis-tap costs money and a seat. --touch is the floor.
+   Four seats plus an aisle at this size is 244px, which still fits the 320px
+   screen at the bottom of this market — there was never a reason to be smaller. */
+.seat-row {
+  display: grid;
+  grid-template-columns: repeat(2, var(--touch)) 20px repeat(2, var(--touch));
+  gap: 6px; margin-bottom: 6px; justify-content: center;
+}
+.seat {
+  height: var(--touch); border-radius: 7px 7px 3px 3px;
+  border: 1px solid var(--line-2); background: var(--surface-2);
+  font-size: .8rem; font-weight: 640; color: var(--ink-2);
+  display: grid; place-items: center; cursor: pointer; padding: 0;
+  font-family: var(--mono);
+  transition: transform .06s ease, background .12s ease, border-color .12s ease;
+  touch-action: manipulation;           /* no 300ms double-tap-zoom delay */
+  -webkit-tap-highlight-color: transparent;
+}
+.seat:hover:not(:disabled) { border-color: var(--brand); transform: translateY(-1px); }
+.seat[data-state="selected"] {
+  background: var(--accent); border-color: var(--accent-600); color: #21160A;
+  /* Selection is the one seat state that must survive a colour-blind reader and
+     a sun-bleached screen, so it carries a ring as well as a fill. */
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+.seat[data-state="sold"]     { background: var(--sunken); border-color: var(--line); color: var(--muted); cursor: not-allowed; text-decoration: line-through; }
+.seat[data-state="held"]     { background: var(--warn-tint); border-color: var(--warn); color: var(--warn); cursor: not-allowed; }
+.seat[data-state="blocked"]  { background: transparent; border-style: dashed; color: var(--muted); cursor: not-allowed; }
+.seat[data-type="FEMALE_RESERVED"]:not([data-state="sold"]) { border-color: #C2478E; border-width: 2px; }
+.seat[data-type="SLEEPER"] { height: calc(var(--touch) * 1.3); border-radius: 9px; }
+.seat-aisle { }
+@media (prefers-reduced-motion: reduce) { .seat { transition: none; } .seat:hover:not(:disabled) { transform: none; } }
+.seat-legend {
+  display: flex; flex-wrap: wrap; gap: .5rem .9rem;
+  font-size: .76rem; color: var(--muted);
+  list-style: none; margin: 0; padding: 0;
+}
+.seat-legend li { display: flex; align-items: center; gap: .32rem; }
+.legend-swatch {
+  display: inline-block; width: 14px; height: 14px; border-radius: 4px;
+  border: 1px solid var(--line-2); flex: none;
+}
+
+/* ------------------------------------------------------------------ ticket */
+.ticket {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-2);
+}
+.ticket-head { background: var(--brand); color: #fff; padding: 1rem 1.15rem; }
+.ticket-body { padding: 1.15rem; display: grid; grid-template-columns: 1fr auto; gap: 1.25rem; }
+@media (max-width: 620px) { .ticket-body { grid-template-columns: 1fr; } }
+.ticket-perf {
+  border-top: 2px dashed var(--line-2); position: relative; margin: 0 1.15rem;
+}
+.pnr { font-family: var(--mono); font-size: 1.5rem; font-weight: 700; letter-spacing: .12em; }
+.qr-box { background: #fff; padding: .6rem; border-radius: 8px; border: 1px solid var(--line); display: grid; place-items: center; }
+.qr-box svg { display: block; width: 148px; height: 148px; }
+
+/* ------------------------------------------------------------------- table */
+.kv { display: grid; grid-template-columns: auto 1fr; gap: .3rem 1rem; font-size: .88rem; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-weight: 550; }
+
+table.data { width: 100%; border-collapse: collapse; font-size: .88rem; }
+table.data th, table.data td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--line); }
+table.data th { font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 620; }
+table.data tr:last-child td { border-bottom: 0; }
+
+/* ------------------------------------------------------------------ misc */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--sunken) 37%, var(--surface-2) 63%);
+  background-size: 400% 100%; animation: shimmer 1.3s ease infinite; border-radius: var(--radius-sm);
+}
+@keyframes shimmer { 0% { background-position: 100% 0 } 100% { background-position: 0 0 } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none } }
+
+.empty { text-align: center; padding: 2.5rem 1rem; color: var(--muted); }
+.empty h3 { color: var(--ink); margin-bottom: .3rem; }
+
+.countdown { font-family: var(--mono); font-weight: 700; font-variant-numeric: tabular-nums; }
+.countdown.urgent { color: var(--danger); }
+
+.route-line { display: flex; align-items: center; gap: .5rem; font-size: .85rem; }
+.route-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); flex: none; }
+.route-dot.hollow { background: transparent; border: 2px solid var(--line-2); }
+.route-track { flex: 1; height: 2px; background: var(--line-2); }
+
+/* progress bar used on the tracking page */
+.progress { height: 6px; background: var(--sunken); border-radius: 999px; overflow: hidden; }
+.progress > span { display: block; height: 100%; background: var(--brand); border-radius: 999px; }
+
+/* ---------------------------------------------------------------------------
+   The sticky action bar.
+
+   On a phone the decision a passenger is making — these seats, this money — must
+   stay on screen while they scroll a seat map or a fare breakdown. Putting the
+   running total and the primary action in a fixed footer is the difference
+   between a funnel and a form. On desktop the same information lives in the
+   sidebar and this bar stands down.
+--------------------------------------------------------------------------- */
+.actionbar {
+  position: sticky; bottom: 0; z-index: 40;
+  display: flex; align-items: center; gap: .9rem;
+  padding: .7rem 1rem calc(.7rem + env(safe-area-inset-bottom, 0px));
+  margin: 1.25rem -1rem 0;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px -18px rgba(20,24,26,.5);
+}
+.actionbar .ab-figures { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.actionbar .ab-total {
+  font-size: 1.22rem; font-weight: 700; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.actionbar .ab-note {
+  font-size: .76rem; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.actionbar .btn { margin-left: auto; flex: none; }
+@media (min-width: 860px) {
+  /* The sidebar already carries this on a wide screen; two copies of the total
+     is one copy too many. */
+  .actionbar { position: static; margin: 1rem 0 0; border-radius: var(--radius);
+               border: 1px solid var(--line); box-shadow: var(--shadow-1); }
+  .actionbar-mobile-only { display: none; }
+}
+
+/* Bottom sheet — filters, fare breakdowns, seat details on a phone. */
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(12,15,16,.44);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.sheet {
+  width: 100%; max-width: 560px;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  padding: .5rem 1rem calc(1.2rem + env(safe-area-inset-bottom, 0px));
+  max-height: 86vh; overflow-y: auto;
+  animation: sheet-up .22s cubic-bezier(.32,.72,0,1);
+}
+.sheet-grip {
+  width: 36px; height: 4px; border-radius: 999px; background: var(--line-2);
+  margin: .35rem auto .8rem;
+}
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@media (min-width: 860px) {
+  .sheet-backdrop { align-items: center; }
+  .sheet { border-radius: var(--radius); max-height: 80vh; }
+}
+@media (prefers-reduced-motion: reduce) { .sheet { animation: none; } }
+
+footer.site-footer {
+  border-top: 1px solid var(--line);
+  margin-top: 3rem; padding: 1.5rem 0 2.5rem;
+  color: var(--muted); font-size: .84rem; background: var(--surface);
+}
+.print-only { display: none; }
+@media print {
+  .site-header, .site-nav, footer.site-footer, .no-print { display: none !important; }
+  body { background: #fff; }
+  .print-only { display: block; }
+  .ticket { box-shadow: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Staff workplaces: counter POS, agent portal, operator ERP, admin console,
+   support console, driver app.
+
+   Deliberately a different room from the passenger site — denser, sidebar-led,
+   no marketing chrome. Each workplace carries its own hue on the rail only, so
+   a clerk can tell at a glance which application is on the screen; the marigold
+   accent stays reserved for the primary action, everywhere, in every app.
+--------------------------------------------------------------------------- */
+.staff {
+  --app: var(--brand);
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--ground);
+}
+
+.staff-rail {
+  position: sticky; top: 0; align-self: start;
+  height: 100vh; display: flex; flex-direction: column;
+  background: var(--surface); border-right: 1px solid var(--line);
+  padding: 1rem .75rem;
+}
+.staff-rail::before {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--app);
+}
+.staff-brand { display: flex; gap: .6rem; align-items: flex-start; padding: .2rem .4rem 1rem; }
+.staff-dot {
+  width: 12px; height: 12px; border-radius: 4px; background: var(--app);
+  flex: none; margin-top: .25rem;
+}
+.staff-nav { display: flex; flex-direction: column; gap: 1px; flex: 1; overflow-y: auto; }
+.staff-nav a {
+  display: block; padding: .45rem .6rem; border-radius: var(--radius-sm);
+  color: var(--ink-2); font-size: .9rem; text-decoration: none;
+}
+.staff-nav a:hover { background: var(--surface-2); text-decoration: none; }
+.staff-nav a[aria-current="page"] {
+  background: var(--sunken); color: var(--ink); font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--app);
+}
+.staff-foot { border-top: 1px solid var(--line); padding: .75rem .6rem 0; margin-top: .75rem; }
+
+.staff-main { padding: 1.25rem 1.5rem 3rem; min-width: 0; }
+.staff-boot { display: grid; place-items: center; min-height: 60vh; padding: 2rem; gap: .8rem; }
+
+.staff-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem;
+              flex-wrap: wrap; margin-bottom: 1rem; }
+
+@media (max-width: 900px) {
+  .staff { grid-template-columns: 1fr; }
+  .staff-rail { position: static; height: auto; flex-direction: column; }
+  .staff-nav { flex-direction: row; flex-wrap: wrap; }
+  .staff-main { padding: 1rem; }
+}
+
+/* metric tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .7rem; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+        padding: .8rem .9rem; }
+.tile .n { font-size: 1.5rem; font-weight: 680; letter-spacing: -.02em;
+           font-variant-numeric: tabular-nums; display: block; }
+.tile .k { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+/* data tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius);
+              background: var(--surface); }
+table.data { width: 100%; border-collapse: collapse; font-size: .875rem; }
+table.data th, table.data td { padding: .55rem .7rem; text-align: left; border-bottom: 1px solid var(--line); }
+table.data th { font-size: .74rem; text-transform: uppercase; letter-spacing: .06em;
+                color: var(--muted); font-weight: 620; background: var(--surface-2);
+                position: sticky; top: 0; }
+table.data tbody tr:last-child td { border-bottom: 0; }
+table.data tbody tr:hover { background: var(--surface-2); }
+table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* a horizontal bar used inside report tables */
+.bar { height: 6px; border-radius: 999px; background: var(--sunken); min-width: 60px; }
+.bar > span { display: block; height: 100%; border-radius: 999px; background: var(--app); }
+
+/* the boarding scanner verdict */
+.verdict { border-radius: var(--radius); padding: 1rem 1.1rem; border: 1px solid var(--line);
+           display: flex; gap: .9rem; align-items: center; }
+.verdict strong { font-size: 1.2rem; }
+.verdict.ok   { background: var(--ok-tint); border-color: var(--ok); color: var(--ok); }
+.verdict.bad  { background: var(--danger-tint); border-color: var(--danger); color: var(--danger); }
+.verdict.warn { background: var(--warn-tint); border-color: var(--warn); color: var(--warn); }
+
+/* timeline in the support console */
+.timeline { list-style: none; margin: 0; padding: 0 0 0 1.1rem; border-left: 2px solid var(--line); }
+.timeline li { position: relative; padding: 0 0 1rem .9rem; }
+.timeline li::before {
+  content: ''; position: absolute; left: -1.42rem; top: .42rem;
+  width: 9px; height: 9px; border-radius: 50%; background: var(--app);
+  border: 2px solid var(--surface);
+}
+.timeline .t-src { font-family: var(--mono); font-size: .72rem; color: var(--muted); }
+
+/* the offline banner in the POS */
+.offline-bar {
+  background: var(--warn-tint); color: var(--warn); border: 1px solid var(--warn);
+  border-radius: var(--radius); padding: .6rem .8rem; font-size: .88rem;
+  display: flex; gap: .6rem; align-items: center; justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.login-page { display: grid; place-items: center; min-height: 100vh; padding: 2rem 1rem;
+              background: var(--ground); }
+.login-card { width: 100%; max-width: 420px; }
+.demo-list { display: grid; gap: .25rem; font-size: .8rem; }
+.demo-list button {
+  text-align: left; background: none; border: 0; padding: .28rem .4rem; cursor: pointer;
+  border-radius: var(--radius-sm); color: var(--ink-2); font: inherit; font-size: .8rem;
+}
+.demo-list button:hover { background: var(--surface-2); }

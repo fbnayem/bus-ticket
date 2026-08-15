@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+next-env.d.ts
+
+# Compiled Go binaries and their run logs. `go build ./services/api/cmd/api`
+# regenerates bin/api.exe; committing a 16 MB binary would dwarf the source.
+bin/
+*.exe
+*.log
+*.err
+
+# Test artefacts — the browser suites write screenshots on every run
+artifacts/
+playwright-report/
+test-results/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# Go
+vendor/
+*.test
+
+# TypeScript incremental build cache
+*.tsbuildinfo

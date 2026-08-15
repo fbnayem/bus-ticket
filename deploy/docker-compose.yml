@@ -1,0 +1,71 @@
+name: busticket
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      POSTGRES_DB: platform
+    # Durability knobs are relaxed because this compose file is a local proof
+    # harness, not a production topology. They change throughput, never
+    # correctness: the concurrency invariants under test are enforced by
+    # transactions and constraints, which behave identically either way.
+    command:
+      - postgres
+      - -c
+      - max_connections=400
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - fsync=off
+      - -c
+      - synchronous_commit=off
+      - -c
+      - full_page_writes=off
+    volumes:
+      - ../db/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "55440:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "56390:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # Runs the inventory proof suite against the real database above.
+  proof:
+    image: golang:1.24-alpine
+    working_dir: /src
+    environment:
+      DATABASE_URL: postgres://platform:platform@postgres:5432/platform?sslmode=disable
+      CGO_ENABLED: "0"
+      GOFLAGS: -mod=mod
+      # Override to change stampede size, e.g. PROOF_CONTENDERS=100000
+      PROOF_CONTENDERS: "20000"
+      PROOF_WORKERS: "160"
+    volumes:
+      - ..:/src
+      - gomodcache:/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - "go mod tidy && go vet ./... && go test ./services/... -v -count=1 -timeout 40m"
+
+volumes:
+  gomodcache:
+  gobuildcache:

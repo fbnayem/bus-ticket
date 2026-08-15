@@ -1,0 +1,1537 @@
+<title>Bus Ticketing Build Plan</title>
+<style>
+  :root {
+    --ground: #FBFAF7;
+    --surface: #FFFFFF;
+    --surface-2: #F4F1EC;
+    --sunken: #F0ECE4;
+    --ink: #16181D;
+    --ink-2: #3A3E46;
+    --muted: #6A6259;
+    --line: #E2DDD3;
+    --line-2: #CFC7B9;
+    --accent: #B8620E;
+    --accent-soft: #F6E7D5;
+    --accent-ink: #8A4809;
+    --route: #0E7C6B;
+    --route-soft: #DDEFEA;
+    --warn: #9A3412;
+    --shadow: 0 1px 2px rgba(22,24,29,.05), 0 8px 24px -12px rgba(22,24,29,.12);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #141619;
+      --surface: #1B1E23;
+      --surface-2: #21252B;
+      --sunken: #101216;
+      --ink: #E9E5DE;
+      --ink-2: #C3BEB5;
+      --muted: #968D81;
+      --line: #2C3037;
+      --line-2: #3C424B;
+      --accent: #E8963A;
+      --accent-soft: #33240F;
+      --accent-ink: #F0B473;
+      --route: #45B7A0;
+      --route-soft: #13302B;
+      --warn: #E08A5F;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #141619;
+    --surface: #1B1E23;
+    --surface-2: #21252B;
+    --sunken: #101216;
+    --ink: #E9E5DE;
+    --ink-2: #C3BEB5;
+    --muted: #968D81;
+    --line: #2C3037;
+    --line-2: #3C424B;
+    --accent: #E8963A;
+    --accent-soft: #33240F;
+    --accent-ink: #F0B473;
+    --route: #45B7A0;
+    --route-soft: #13302B;
+    --warn: #E08A5F;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 1.5rem; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell { display: grid; grid-template-columns: 250px minmax(0,1fr); gap: 3rem; max-width: 1240px; margin: 0 auto; padding: 0 1.75rem; }
+  @media (max-width: 940px) { .shell { grid-template-columns: 1fr; gap: 0; } }
+
+  /* ---------- rail ---------- */
+  .rail { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; padding: 2.5rem 0 3rem; }
+  @media (max-width: 940px) {
+    .rail { position: static; max-height: none; padding: 1.5rem 0 0; border-bottom: 1px solid var(--line); margin-bottom: 1.5rem; }
+  }
+  .rail-mark { font-family: var(--mono); font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin-bottom: 1.25rem; }
+  .rail nav { display: flex; flex-direction: column; gap: .1rem; }
+  .rail a { display: block; text-decoration: none; color: var(--muted); font-size: .855rem; padding: .3rem 0 .3rem .8rem; border-left: 2px solid var(--line); line-height: 1.35; }
+  .rail a:hover { color: var(--accent); border-left-color: var(--accent); }
+  .rail a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  .rail a.phase { color: var(--ink); font-weight: 620; margin-top: .85rem; border-left-color: var(--line-2); }
+  .rail a.phase span { display: block; font-family: var(--mono); font-size: .68rem; font-weight: 400; color: var(--muted); letter-spacing: .04em; }
+
+  /* ---------- document ---------- */
+  main { padding: 2.5rem 0 6rem; min-width: 0; }
+  .wrap { max-width: 74ch; }
+
+  h1 { font-family: var(--serif); font-size: clamp(2.1rem, 5vw, 3rem); line-height: 1.08; font-weight: 600; letter-spacing: -.015em; margin: 0 0 .6rem; text-wrap: balance; }
+  h2 { font-family: var(--serif); font-size: clamp(1.5rem, 3vw, 1.95rem); line-height: 1.18; font-weight: 600; letter-spacing: -.01em; margin: 3.5rem 0 1rem; text-wrap: balance; scroll-margin-top: 1.5rem; }
+  h3 { font-size: 1.12rem; font-weight: 660; margin: 2.4rem 0 .7rem; letter-spacing: -.005em; text-wrap: balance; }
+  h4 { font-size: .95rem; font-weight: 660; margin: 1.9rem 0 .5rem; }
+  p { margin: 0 0 1rem; }
+  a { color: var(--accent-ink); }
+  strong { font-weight: 660; color: var(--ink); }
+  ul, ol { margin: 0 0 1.1rem; padding-left: 1.15rem; }
+  li { margin-bottom: .38rem; }
+  li::marker { color: var(--muted); }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 3rem 0; }
+
+  .eyebrow { font-family: var(--mono); font-size: .7rem; letter-spacing: .15em; text-transform: uppercase; color: var(--accent); margin: 0 0 .7rem; }
+  .lede { font-size: 1.12rem; line-height: 1.55; color: var(--ink-2); max-width: 62ch; }
+  .meta { font-family: var(--mono); font-size: .74rem; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+
+  /* ---------- hero stats ---------- */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(122px,1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; margin: 2.25rem 0 0; }
+  .stat { background: var(--surface); padding: .95rem 1rem; }
+  .stat b { display: block; font-family: var(--mono); font-size: 1.35rem; font-weight: 600; letter-spacing: -.02em; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .stat span { display: block; font-size: .74rem; color: var(--muted); margin-top: .15rem; line-height: 1.3; }
+
+  /* ---------- callout ---------- */
+  .rule { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 1.15rem 1.35rem; border-radius: 0 3px 3px 0; margin: 2rem 0; }
+  .rule p { margin: 0; font-size: 1.02rem; color: var(--ink); }
+  .rule .meta { display: block; margin-bottom: .45rem; color: var(--accent-ink); }
+
+  .note { border-left: 3px solid var(--line-2); padding: .2rem 0 .2rem 1.1rem; margin: 1.5rem 0; color: var(--ink-2); }
+
+  /* ---------- tables ---------- */
+  .tw { overflow-x: auto; margin: 1.4rem 0; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: .875rem; }
+  th, td { text-align: left; padding: .62rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.48; }
+  th { font-size: .7rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-weight: 620; background: var(--surface-2); white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { font-variant-numeric: tabular-nums; }
+  .tw.weeks td:first-child { font-family: var(--mono); font-weight: 600; color: var(--accent); white-space: nowrap; }
+  .tw.weeks td:nth-child(2) { font-family: var(--mono); font-size: .78rem; color: var(--muted); white-space: nowrap; }
+  .tw.kv th { width: 30%; }
+
+  /* ---------- code ---------- */
+  pre { background: var(--sunken); border: 1px solid var(--line); border-radius: 3px; padding: 1rem 1.1rem; overflow-x: auto; margin: 1.4rem 0; }
+  code { font-family: var(--mono); font-size: .795rem; line-height: 1.55; }
+  pre code { color: var(--ink-2); white-space: pre; }
+  :not(pre) > code { background: var(--surface-2); border: 1px solid var(--line); padding: .08em .38em; border-radius: 3px; font-size: .855em; color: var(--accent-ink); }
+
+  /* ---------- phase header ---------- */
+  .phase-head { border-top: 2px solid var(--accent); padding-top: 1.5rem; margin-top: 4.5rem; }
+  .phase-head .num { font-family: var(--mono); font-size: .72rem; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
+  .phase-head h2 { margin-top: .5rem; }
+  .phase-head .span { font-family: var(--mono); font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* ---------- workstream ---------- */
+  .ws { border: 1px solid var(--line); border-radius: 3px; background: var(--surface); padding: 1.1rem 1.25rem; margin: 1.1rem 0; }
+  .ws > h4 { margin: 0 0 .5rem; font-size: 1rem; }
+  .ws > h4 .id { font-family: var(--mono); color: var(--accent); font-size: .88rem; }
+  .ws .facts { font-size: .78rem; color: var(--muted); margin: 0 0 .8rem; padding-bottom: .7rem; border-bottom: 1px dashed var(--line); }
+  .ws .facts b { color: var(--ink-2); font-weight: 620; }
+  .ws ul { margin-bottom: .75rem; font-size: .92rem; }
+  .ws .done { font-size: .88rem; margin: 0; padding: .65rem .8rem; background: var(--route-soft); border-radius: 3px; color: var(--ink-2); }
+  .ws .done b { color: var(--route); }
+  .critical { border-color: var(--accent); }
+  .critical > h4::after { content: "critical path"; font-family: var(--mono); font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); padding: .18em .5em; border-radius: 2px; margin-left: .6rem; vertical-align: .12em; white-space: nowrap; }
+
+  /* ---------- gate / checklist ---------- */
+  .gate { border: 1px solid var(--line-2); border-radius: 3px; padding: 1.25rem 1.4rem; background: var(--surface); margin: 1.5rem 0; }
+  .gate > .meta { color: var(--route); margin-bottom: .8rem; }
+  .check { list-style: none; padding: 0; margin: 0; column-gap: 2rem; font-size: .88rem; }
+  .check li { padding-left: 1.5rem; position: relative; break-inside: avoid; }
+  .check li::before { content: "☐"; position: absolute; left: 0; color: var(--route); font-size: 1rem; line-height: 1.5; }
+  @media (min-width: 720px) { .check.two { columns: 2; } }
+
+  .tag { display: inline-block; font-family: var(--mono); font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; padding: .2em .55em; border-radius: 2px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); }
+
+  footer { border-top: 1px solid var(--line); margin-top: 4rem; padding-top: 1.5rem; color: var(--muted); font-size: .84rem; }
+</style>
+
+<div class="shell">
+  <aside class="rail">
+    <div class="rail-mark">44 weeks · 3 phases</div>
+    <nav>
+      <a href="#context">Context</a>
+      <a href="#decisions">Decisions locked</a>
+      <a href="#compression">Compression map</a>
+      <a href="#timeline">Timeline &amp; team</a>
+      <a href="#architecture">Architecture baseline</a>
+      <a href="#standards">Cross-cutting standards</a>
+      <a href="#phase1" class="phase">Phase 1 · Booking core<span>Weeks 1–14</span></a>
+      <a href="#phase2" class="phase">Phase 2 · Channels &amp; money<span>Weeks 15–30</span></a>
+      <a href="#phase3" class="phase">Phase 3 · Scale &amp; launch<span>Weeks 31–44</span></a>
+      <a href="#thirteen" style="margin-top:.85rem">First thirteen steps</a>
+      <a href="#verification">Verification</a>
+      <a href="#done">Definition of done</a>
+      <a href="#nongoals">What this doesn't do</a>
+    </nav>
+  </aside>
+
+  <main>
+    <div class="wrap">
+      <p class="eyebrow">Master development plan</p>
+      <h1>Bus Ticketing Platform</h1>
+      <p class="lede">An enterprise bus transportation and ticketing ecosystem for the Bangladesh market, built to scale toward 10 million concurrent users — 83 specified sub-sections compressed into three phases, with nothing dropped.</p>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><b>44</b><span>weeks to production</span></div>
+      <div class="stat"><b>3</b><span>phases</span></div>
+      <div class="stat"><b>21</b><span>services</span></div>
+      <div class="stat"><b>83</b><span>sub-sections mapped</span></div>
+      <div class="stat"><b>10M</b><span>concurrent target</span></div>
+    </div>
+
+    <div class="wrap">
+      <div class="gate" style="margin-top:2rem">
+        <span class="meta">Build status — Phase 1 step 13 gate: PASSED</span>
+        <p style="margin-bottom:.6rem">Steps 1–13 of the execution order are implemented and the concurrency gate has been executed against a real PostgreSQL 16 instance. Measured, not asserted:</p>
+        <ul style="margin-bottom:.6rem">
+          <li><strong>100,000 concurrent buyers for one seat → exactly 1 winner</strong>, 99,999 clean rejections, 0 errors, 1 acquisition event, 1 hold row (27,269 attempts/sec)</li>
+          <li><strong>200 duplicate payment webhooks → 1 payment, 1 confirmation, 1 ticket per seat</strong></li>
+          <li>Segment resale verified against an independent oracle across all 36 journey pairs</li>
+          <li>Confirm-vs-expiry race, 120 iterations → 97 confirmed / 23 expired, <strong>0 ambiguous</strong></li>
+          <li>Double-entry <strong>trial balance variance = 0 poisha</strong></li>
+        </ul>
+        <p style="margin-bottom:0">Everything after step 13 remains unbuilt. The repository README states precisely what does and does not exist.</p>
+      </div>
+
+      <h2 id="context">Context</h2>
+      <p>The project owner has written a detailed master specification for an enterprise bus transportation and ticketing ecosystem for the Bangladesh market — bKash/Nagad payments, multi-stop routes such as Dhaka&nbsp;→&nbsp;Cumilla&nbsp;→&nbsp;Feni&nbsp;→&nbsp;Chattogram — designed to scale toward 10 million concurrent users. That specification is organised into 5 phases containing 83 numbered sub-sections.</p>
+      <p>The request: <strong>compress those 83 sub-sections into 3 development phases, drop nothing, and finish as fast as is safely possible.</strong> When Phase 3 closes, the entire production system must exist — passenger booking, operators, counters, agents, payments, finance, GPS, apps, AI, analytics, API partners, scalability, security and disaster recovery.</p>
+      <p>The project directory is empty. This is a greenfield build with no existing code, no migrations, and no prior architectural commitments to work around.</p>
+
+      <div class="rule">
+        <span class="meta">The governing rule</span>
+        <p>Every sales channel — web, app, counter POS, agent, operator, partner API, AI — calls the exact same Inventory Service. No channel gets its own seat logic.</p>
+      </div>
+
+      <p>That decision, more than any other, determines whether the system stays correct as it grows from thousands of users to millions. It is why Phase 1 builds and <em>proves</em> the inventory core before any channel is built on top of it.</p>
+      <p>The source specification is preserved verbatim at <code>docs/reference/source-master-plan.md</code> so the compression can always be audited against the original.</p>
+
+      <h2 id="decisions">Decisions locked</h2>
+      <p>Confirmed by the owner and treated as fixed constraints throughout.</p>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>#</th><th>Decision</th><th>Consequence for this plan</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><strong>Team of 20–40 engineers</strong>, ramping from ~24 to ~40</td><td>Workstreams run in parallel; the schedule is only valid at this headcount</td></tr>
+          <tr><td>2</td><td><strong>True microservices from day one</strong> — all 21 services independently deployed, gRPC internal, REST public</td><td>Costs ~3–4 weeks versus a modular monolith. Requires saga/outbox correctness, per-service CI/CD, contract testing and distributed tracing as hard requirements from week 1</td></tr>
+          <tr><td>3</td><td><strong>Controlled pilot inside Phase 2</strong> — 1–3 real operators, real money, limited routes, around weeks 25–27</td><td>Phase 3 hardens a system that is already earning revenue. Every Phase 3 migration must be online and reversible</td></tr>
+          <tr><td>4</td><td><strong>Build and run full 10M capacity in Phase 3</strong> — full multi-region, live, regardless of current traffic</td><td>Deliberate capacity insurance bought ahead of demand. Requires FinOps controls from week 31, since this is the largest recurring cost in the project</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <div class="note">Decision 2 was made against the recommendation to start with a modular monolith and extract services under load. The owner's choice stands; the schedule absorbs its cost rather than hiding it. Decision 4 likewise buys confidence at a real and recurring price, quantified in Phase 3.</div>
+
+      <h2 id="compression">The compression map</h2>
+      <p>Every numbered section of the original specification, and where it now lives. Nothing is dropped.</p>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Original</th><th>Now in</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td>1.1 – 1.12 <span class="tag">foundation</span></td><td><strong>Phase 1</strong></td><td>Architecture, services, environments, auth, RBAC, roles, geography, operators, fleet, seat layouts, routes, schedules. Unchanged in scope, compressed in calendar</td></tr>
+          <tr><td>2.1 – 2.14 <span class="tag">commerce</span></td><td><strong>Phase 1</strong></td><td>Inventory, atomic locking, holds, segments, search, booking, pricing, payment safety, tickets, QR, cancellation, refund, reschedule. Merged forward — Phase 1 now ends with a <em>proven</em> booking core, not just a data model</td></tr>
+          <tr><td>5.1, 5.3, 5.5, 5.6, 5.7, 5.11, 5.13, 5.19 <span class="tag">partial</span></td><td><strong>Phase 1</strong></td><td>Only the parts that are ruinous to retrofit: API gateway, Redis usage patterns, partition- and shard-ready schema, Kafka envelope + schema registry, security baseline, immutable audit, per-service test matrix</td></tr>
+          <tr><td>3.1 – 3.15 <span class="tag">channels</span></td><td><strong>Phase 2</strong></td><td>Passenger web, passenger app, operator ERP, counter POS, counter offline, agents, agent wallet, commission, ledger, settlement, reconciliation, admin, support, promotions, referral. Unchanged in scope</td></tr>
+          <tr><td>4.1 – 4.13 <span class="tag">operations</span></td><td><strong>Phase 2</strong></td><td>Driver app, crew mode, boarding, GPS, live tracking, ETA, ops control centre, replacement bus, incidents, notifications, analytics, reports, real-time dashboard. Moved forward — operations must exist before a real operator can run a real trip in the pilot</td></tr>
+          <tr><td>4.14 – 4.22 <span class="tag">intelligence</span></td><td><strong>Phase 3</strong></td><td>Fraud, partner API, webhooks, white-label, AI support, AI voice, AI operator assistant, forecasting, dynamic pricing. Deliberately after the pilot — all three of fraud, forecasting and pricing need real production data to be worth anything</td></tr>
+          <tr><td>5.1 – 5.20 <span class="tag">scale</span></td><td><strong>Phase 3</strong></td><td>Gateway, CDN, Redis/OpenSearch clusters, PostgreSQL scaling, sharding, Kafka topology, multi-region, autoscaling, circuit breakers, security, financial controls, audit, backups, DR, load testing, chaos, test matrix, E2E. Full versions, including parts partially started in Phase 1</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <p><strong>Net effect:</strong> the original Phase 1+2 become the new Phase 1; the original Phase 3+4 become the new Phase 2; the original Phase 4 tail plus all of Phase 5 become the new Phase 3.</p>
+
+      <h2 id="timeline">Timeline &amp; team</h2>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Phase</th><th>Weeks</th><th>Duration</th><th>Headcount</th><th>Ends with</th></tr></thead>
+        <tbody>
+          <tr><td><strong>1</strong> · Foundation &amp; the Booking Core</td><td>1–14</td><td>14 weeks</td><td>~24</td><td>A booking core proven incapable of double-booking</td></tr>
+          <tr><td><strong>2</strong> · Every Channel, the Money, and the Road</td><td>15–30</td><td>16 weeks</td><td>~38</td><td>Real operators selling real tickets for real money</td></tr>
+          <tr><td><strong>3</strong> · Intelligence, Ecosystem &amp; 10M Production</td><td>31–44</td><td>14 weeks</td><td>~40</td><td>General availability at proven 10M capacity</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <p><strong>Total: 44 weeks (~10 months) to full production.</strong> That figure assumes the headcount is actually in place on schedule, and that hiring for the Phase 2 ramp (24 → 38) begins in week 1, not week 14. Recruiting lead time is the most commonly underestimated dependency in a plan of this shape; it is treated here as a critical-path item.</p>
+      <h3>Team shape by phase</h3>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Group</th><th>P1</th><th>P2</th><th>P3</th></tr></thead>
+        <tbody>
+          <tr><td>Go backend</td><td>10</td><td>12</td><td>10</td></tr>
+          <tr><td>Frontend (Next.js/TS)</td><td>2</td><td>8</td><td>5</td></tr>
+          <tr><td>Flutter</td><td>1</td><td>4</td><td>3</td></tr>
+          <tr><td>Platform / DevOps / SRE</td><td>3</td><td>3</td><td>7</td></tr>
+          <tr><td>DBA / data / analytics</td><td>1</td><td>2</td><td>2</td></tr>
+          <tr><td>AI engineers</td><td>—</td><td>—</td><td>2</td></tr>
+          <tr><td>QA automation / performance</td><td>3</td><td>5</td><td>6</td></tr>
+          <tr><td>Security</td><td>1</td><td>1</td><td>2</td></tr>
+          <tr><td>Product / BA</td><td>1</td><td>2</td><td>2</td></tr>
+          <tr><td>EM + tech lead</td><td>2</td><td>1</td><td>1</td></tr>
+          <tr><td><strong>Total</strong></td><td><strong>24</strong></td><td><strong>38</strong></td><td><strong>40</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h2 id="architecture">Architecture baseline</h2>
+      <p>Per the specification and Decision 2, all 21 services are independently deployed from day one.</p>
+      <pre><code>identity   operator     fleet     location  route     schedule
+inventory  search       booking   payment   ticket    agent
+notification  finance   tracking  promotion support   analytics
+risk       partner-api  ai</code></pre>
+    </div>
+
+    <div class="tw kv">
+      <table>
+        <tbody>
+          <tr><th>Frontend</th><td>Next.js + React + TypeScript</td></tr>
+          <tr><th>Mobile</th><td>Flutter (Android/iOS)</td></tr>
+          <tr><th>Backend</th><td>Go</td></tr>
+          <tr><th>Internal transport</th><td>gRPC</td></tr>
+          <tr><th>Public API</th><td>REST under <code>/api/v1/</code></td></tr>
+          <tr><th>Transactional store</th><td>PostgreSQL (schema per service)</td></tr>
+          <tr><th>Cache / timers</th><td>Redis Cluster</td></tr>
+          <tr><th>Events</th><td>Apache Kafka</td></tr>
+          <tr><th>Search</th><td>OpenSearch</td></tr>
+          <tr><th>Analytics</th><td>ClickHouse</td></tr>
+          <tr><th>Objects</th><td>S3</td></tr>
+          <tr><th>Runtime</th><td>Docker + Kubernetes</td></tr>
+          <tr><th>Infrastructure</th><td>Terraform</td></tr>
+          <tr><th>Metrics</th><td>Prometheus + Grafana</td></tr>
+          <tr><th>Tracing</th><td>OpenTelemetry</td></tr>
+          <tr><th>Logs</th><td>Loki / OpenSearch</td></tr>
+          <tr><th>CI/CD</th><td>GitHub Actions</td></tr>
+          <tr><th>Environments</th><td><code>LOCAL</code> · <code>DEV</code> · <code>QA</code> · <code>STAGING</code> · <code>PRE-PRODUCTION</code> · <code>PRODUCTION</code> · <code>DR</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h2 id="standards">Cross-cutting standards</h2>
+      <p>Applied from week 1 across every service. These are not Phase 3 concerns.</p>
+      <p><strong>API.</strong> All public routes under <code>/api/v1/</code>. Every mutation accepts <code>request_id</code> and <code>idempotency_key</code>, and records <code>actor</code> and <code>timestamp</code>.</p>
+      <p><strong>Events.</strong> Standard Kafka envelope on every topic:</p>
+      <pre><code>{ "event_id": "...", "event_type": "...", "version": 1,
+  "timestamp": "...", "producer": "...", "correlation_id": "...", "payload": {} }</code></pre>
+      <p><strong>Observability.</strong> Every request carries <code>request_id</code> and <code>trace_id</code> end to end. Monitored from the first deploy: API latency, API error rate, requests/sec, search latency, seat-hold latency, booking confirmation latency, payment success rate, webhook errors, DB utilisation, Redis utilisation, Kafka consumer lag, OpenSearch latency, active trips, GPS event lag.</p>
+      <p><strong>Performance targets (p95).</strong> Gate conditions, not aspirations.</p>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Operation</th><th>Target p95</th></tr></thead>
+        <tbody>
+          <tr><td>Search</td><td>&lt; 200 ms</td></tr>
+          <tr><td>Trip details</td><td>&lt; 150 ms</td></tr>
+          <tr><td>Seat availability</td><td>&lt; 150 ms</td></tr>
+          <tr><td>Seat hold</td><td>&lt; 250 ms</td></tr>
+          <tr><td>Booking creation</td><td>&lt; 300 ms</td></tr>
+          <tr><td>Internal ticket lookup</td><td>&lt; 150 ms</td></tr>
+          <tr><td>QR verification</td><td>&lt; 200 ms</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="wrap"><p class="meta">Third-party payment processing time is excluded from these.</p></div>
+
+    <div class="wrap phase-head">
+      <div class="num">Phase 1 of 3</div>
+      <h2 id="phase1">Foundation &amp; the Booking Core</h2>
+      <div class="span">Weeks 1–14 · ~24 engineers</div>
+    </div>
+
+    <div class="tw kv">
+      <table>
+        <tbody>
+          <tr><th>Headcount</th><td>10 Go backend, 2 frontend, 1 Flutter, 3 platform/SRE, 1 DBA, 3 QA automation, 1 security, 1 product/BA, 1 EM, 1 tech lead/architect</td></tr>
+          <tr><th>Done means</th><td>A stranger with an API key can search a generated trip, hold seats, pay via bKash sandbox, and receive a signed ticket — and 100,000 rivals for the same seat cannot break it.</td></tr>
+          <tr><th>Hardest risk</th><td>Segment-correct atomic seat inventory that stays consistent across three services (inventory → booking → payment) without 2PC, on a schema that must already be shard-ready by <code>trip_id</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h3>What Phase 1 delivers</h3>
+      <p>A provably correct booking core behind versioned APIs: all 21 services scaffolded and independently deployable, with identity/RBAC, catalog (geography, operators, fleet, seat layouts), routing and scheduling with automatic trip generation, the atomic segment inventory engine, the search pipeline, and the full commerce chain — booking → payment → ticket → cancellation → refund → reschedule. Plus the platform spine (gateway, tracing, audit, outbox/Kafka, security baseline) that the original specification deferred to Phase 5 and that is correctly built in from day one here.</p>
+      <p>There is <strong>no customer-facing product</strong> at the end of Phase 1 — only a thin reference web client (one flow: search → seat map → pay → ticket) that exists to prove the APIs end to end and keep the two frontend engineers exercising real contracts.</p>
+      <p>Building the storefront first would be a mistake because the storefront is the cheap, replaceable part. Every screen depends on inventory semantics, price snapshots and payment safety that do not yet exist, so UI built early is UI built against guesses and rebuilt later — while the one thing that can kill the company, double-sold seats and unpaid tickets, ships unproven. The system's value is the invariant, not the pixels. The pixels are Phase 2.</p>
+
+      <h3>Entry criteria</h3>
+      <p>Locked before Week 1 — owner and EM accountable.</p>
+      <ul>
+        <li><strong>Cloud region</strong>: AWS ap-southeast-1 (Singapore) primary — nearest full-service region to Bangladesh; DR region designated (ap-south-1). Managed services approved: EKS, RDS PostgreSQL, ElastiCache, MSK, OpenSearch Service, S3, CloudFront, WAF.</li>
+        <li><strong>Payments</strong>: bKash and Nagad <strong>sandbox credentials in hand by Week 1</strong>; merchant applications <em>filed</em> in Week 1 — 6–10 week lead time, so this cannot start later. Card gateway (SSLCommerz or equivalent) sandbox requested.</li>
+        <li><strong>Legal entity</strong> registered and empowered to sign operator contracts and payment merchant agreements; counsel opinion on whether an aggregator/PSP licence is required for holding operator funds.</li>
+        <li><strong>Domains + TLS</strong>: production domain, api/staging subdomains, DNS control, certificate automation.</li>
+        <li><strong>Owner decisions on record</strong>: default cancellation tiers (24h+/90%, 12–24h/70%, 6–12h/50%, &lt;6h/0%, operator-overridable), currency BDT only in Phase 1 (schema carries a currency code regardless), VAT treatment (fare VAT-inclusive at 15%, ledger splits it), SMS OTP vendor selected, data-residency stance for PII.</li>
+        <li><strong>Accounts</strong>: GitHub org, artifact registry, secrets vault decided, PagerDuty/alerting, Sentry or equivalent.</li>
+      </ul>
+
+      <h3>Workstreams</h3>
+
+      <div class="ws">
+        <h4><span class="id">P1-A</span> · Platform Foundation</h4>
+        <p class="facts"><b>Owner</b> Platform lead (3 platform/SRE + tech lead) · <b>Depends on</b> entry criteria · <b>Weeks</b> 1–6, then sustaining</p>
+        <ul>
+          <li><strong>Monorepo</strong> (single Go module workspace + <code>proto/</code> + <code>deploy/</code>), not polyrepo. With 21 services, 24 engineers and heavy early contract churn, atomic cross-service refactors of protos and shared chassis libraries beat 21 repos of version skew. Per-service CI/CD via path-filtered pipelines: each service builds, tests, versions and deploys <strong>independently</strong>. Monorepo ≠ monolithic deploy.</li>
+          <li>Terraform for all 7 environments (LOCAL = docker-compose); PROD/DR minimal-footprint but real pipelines from Week 12.</li>
+          <li>EKS clusters; <strong>Linkerd</strong> service mesh (mTLS, gRPC load balancing, retries/timeouts) — chosen over Istio because a 3-person platform team cannot also operate Istio; the need is mTLS and traffic policy, not a platform hobby.</li>
+          <li>API Gateway (Kong or Envoy Gateway): authn, rate limits, routing, versioning, <code>request_id</code> injection, tenant identification.</li>
+          <li>Golden-path service template ("chassis"): gRPC + REST, health/readiness, OTel tracing, structured logs, config, outbox library, idempotency middleware — template to deployed-in-DEV in under one day.</li>
+          <li>MSK Kafka + <strong>schema registry</strong> (event envelope enforced), DLQs; secrets vault integration; container scanning in CI.</li>
+        </ul>
+        <p class="done"><b>Done when</b> a template service reaches DEV via its own pipeline in &lt;1 day; all 7 environments stand up from Terraform with no manual steps; mesh mTLS is on for all service-to-service traffic; a schema-registry-rejected event fails CI; secrets never appear in env files or repo (scanner enforced).</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P1-B</span> · Data Layer</h4>
+        <p class="facts"><b>Owner</b> DBA + tech lead · <b>Depends on</b> P1-A wk1 · <b>Weeks</b> 1–4, then sustaining</p>
+        <ul>
+          <li><strong>Database-per-service</strong> on RDS. No service ever reads another service's tables — this is the shard-readiness enforcement mechanism.</li>
+          <li>Migration tooling (golang-migrate/Atlas) wired into each service's pipeline; migrations reviewed by the DBA via CODEOWNERS.</li>
+          <li>Schema conventions: UUIDv7 PKs, <code>created_at</code>/<code>updated_at</code>, soft-delete policy, <code>operator_id</code> tenancy column + RLS policies, currency in minor-unit integers, no cross-service FKs.</li>
+          <li>Partition and shard readiness from migration #1: <code>trip_seats</code>, <code>seat_holds</code>, <code>inventory_events</code> hash-partitioned by <code>trip_id</code>; <code>bookings</code>, <code>payments</code>, <code>tickets</code>, <code>ledger_entries</code>, <code>audit_logs</code> range-partitioned by month; every inventory PK includes <code>trip_id</code>; no global sequences.</li>
+          <li>pgbouncer/RDS Proxy pooling; slow-query analysis in CI perf jobs.</li>
+        </ul>
+        <p class="done"><b>Done when</b> every service owns exactly one schema and cross-schema grants are absent; partitioned tables verified by an automated catalog check in CI; a synthetic "move trip X to another database" drill succeeds using only <code>trip_id</code> routing; migration rollback tested for every table.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P1-C</span> · Identity &amp; RBAC</h4>
+        <p class="facts"><b>Owner</b> 2 Go engineers + security engineer · <b>Depends on</b> P1-A wk2, P1-B · <b>Weeks</b> 2–7</p>
+        <ul>
+          <li>Passenger auth: phone OTP (rate-limited, Redis-backed, SMS vendor abstraction), email/password, <strong>guest checkout</strong> (guest identity promotable to account), password reset, device/session management, social login.</li>
+          <li>Staff auth: email/password + <strong>TOTP MFA mandatory</strong>, password policy, suspicious-login lockout, session/device revocation.</li>
+          <li>Tokens: short-lived access JWT + <strong>rotating refresh tokens</strong> (reuse detection revokes the family); gateway validates, services receive identity via mesh-trusted headers + gRPC introspection.</li>
+          <li>RBAC: <code>roles</code>, <code>permissions</code>, <code>role_permissions</code>, <code>user_roles</code> — <strong>no hardcoded roles</strong>; <code>resource.action</code> permission strings; all four role families seeded (Platform 8, Operator 10, Partner 4, Customer 2); operator roles scoped by <code>operator_id</code>.</li>
+        </ul>
+        <p class="done"><b>Done when</b> OTP login, guest checkout and staff MFA pass automated E2E; refresh-token reuse triggers family revocation; a permission check is a single middleware call and a denied <code>booking.cancel</code> is proven by test per role family; creating a new role requires zero code changes; all auth events land in the audit log.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P1-D</span> · Catalog Domain</h4>
+        <p class="facts"><b>Owner</b> 2 Go engineers + product/BA · <b>Depends on</b> P1-C · <b>Weeks</b> 3–8</p>
+        <ul>
+          <li>location-service: countries → divisions → districts → cities → areas → terminals → stops with lat/lng/timezone; <code>location_aliases</code> with canonicalization (Chattogram / Chittagong / CTG → one ID) applied at ingest and at search; Bangladesh gazetteer imported.</li>
+          <li>operator-service: full lifecycle (PENDING → ACTIVE → SUSPENDED → BLOCKED → TERMINATED), branches, documents, bank accounts, commission/settlement/cancellation config, <strong>multi-tenant isolation</strong> — every operator-scoped query filtered by <code>operator_id</code> with Postgres RLS as a backstop.</li>
+          <li>fleet-service: buses, bus_types, documents, amenities, assignments, maintenance; GPS device registry (registry only — tracking is Phase 2).</li>
+          <li><strong>Seat-layout builder</strong> (API + JSON model; admin UI is Phase 2): reusable versioned templates; single deck, double deck, sleeper coach, configurable aisles; every seat typed (Normal / Business / Sleeper / Premium / Female-Reserved / Accessible / Blocked / Crew). Layout versions are <strong>immutable</strong> once referenced by a trip.</li>
+        </ul>
+        <p class="done"><b>Done when</b> alias search resolves all three Chattogram spellings to one canonical location; an operator-A staff token provably cannot read operator-B data (RLS test); a 40-seat AC single-deck and a 30-berth double-deck sleeper layout are creatable via API; layout mutation after trip reference is rejected.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P1-E</span> · Routing &amp; Scheduling</h4>
+        <p class="facts"><b>Owner</b> 2 Go engineers · <b>Depends on</b> P1-D locations · <b>Weeks</b> 4–9</p>
+        <ul>
+          <li>route-service: routes, ordered route_stops, boarding/dropping points, <strong>route_segments</strong> (Dhaka → Cumilla → Feni → Chattogram = 3 segments), per-segment <code>route_fares</code> by fare class. Fare rows are versioned, never mutated.</li>
+          <li>schedule-service: recurring schedules (days-of-week, validity window), <code>schedule_exceptions</code>, <strong>automatic trip generation</strong> (rolling 30-day horizon, idempotent per schedule+date), materialized <code>trip_stops</code>, bus assignment.</li>
+          <li>Full trip lifecycle: DRAFT → SCHEDULED → OPEN → BOARDING → DEPARTED → IN_PROGRESS → ARRIVED → COMPLETED / CANCELLED, with legal-transition enforcement. A trip <strong>snapshots its segment map and layout version</strong> at generation and is immutable thereafter.</li>
+        </ul>
+        <p class="done"><b>Done when</b> a "10:00 PM daily Dhaka → Chattogram AC Business" schedule generates 30 trips with correct stop times; an exception date generates no trip; re-running generation creates zero duplicates; an illegal transition is rejected; <code>trip.created</code> events flow to Kafka with a valid envelope.</p>
+      </div>
+
+      <div class="ws critical">
+        <h4><span class="id">P1-F</span> · The Inventory Core</h4>
+        <p class="facts"><b>Owner</b> Tech lead + 2 senior Go engineers + DBA + 1 QA · <b>Depends on</b> P1-B only — the prototype needs fixtures, <em>not</em> P1-D/E · <b>Weeks</b> 2–10</p>
+        <ul>
+          <li><strong>Weeks 2–4, prototype on fixture data</strong>: a bare <code>trip_seats</code> table, Redis, and a load rig. Prove the locking design before anything is built on it.</li>
+          <li>Data model: <code>trip_inventory</code>, <code>trip_seats</code> (one row per physical seat per trip, carrying <strong>two bitmasks</strong> — <code>segment_sold_mask</code> and <code>segment_hold_mask</code> — over the trip's segment ordinals), <code>seat_segments</code>, <code>seat_holds</code>, append-only <code>inventory_events</code>. Seat states AVAILABLE / HELD / PAYMENT_PENDING / BOOKED / BLOCKED / BOARDED derived per segment from the masks plus status.</li>
+        </ul>
+        <p><strong>Atomic acquisition — never SELECT-then-UPDATE.</strong> One conditional UPDATE per seat, all seats of a hold in one transaction, all-or-nothing:</p>
+        <pre><code>-- want_mask = OR of segment bits between boarding and dropping stop
+UPDATE trip_seats
+   SET segment_hold_mask = segment_hold_mask | :want_mask,
+       version           = version + 1
+ WHERE trip_id = :trip_id
+   AND seat_no = :seat_no
+   AND (segment_hold_mask | segment_sold_mask | blocked_mask) &amp; :want_mask = 0;
+-- rowcount 1 = acquired for exactly those segments; 0 = conflict -&gt; roll back the entire hold</code></pre>
+        <div class="note"><strong>Corrected during implementation.</strong> An earlier draft of this plan carried a <code>current_hold_id</code> column on <code>trip_seats</code>. That is wrong: two different holds can legitimately own non-overlapping segments of the <em>same physical seat</em> (hold A takes Dhaka→Cumilla while hold B takes Feni→Chattogram), which a single-valued column cannot represent — it would silently corrupt segment inventory the first time it mattered. Hold ownership lives in <code>seat_hold_items</code>, keyed <code>(hold_id, seat_no)</code> with the exact mask. Proof 3 in the repository is the regression test.</div>
+        <ul>
+          <li>Segment correctness falls out of the mask: Dhaka→Cumilla (bit 0) and Cumilla→Chattogram (bits 1–2) never intersect; Dhaka→Feni (bits 0–1) versus Cumilla→Chattogram (bits 1–2) collide on bit 1, and the second buyer gets 0 rows.</li>
+          <li><strong>Holds</strong>: <code>HOLD_xxxxx</code> with trip, seats, segment range, passenger/session, frozen price-snapshot reference, channel, <code>expires_at</code> (5–10 min, configurable per channel). <strong>Redis holds the expiry timer for speed; the PostgreSQL <code>expires_at</code> is the authority.</strong> A sweeper scans PostgreSQL every 15s and releases mask bits conditionally, so losing Redis can never strand a seat — only delay release by ≤15s.</li>
+          <li>Every mutation writes an <code>inventory_events</code> row in the same transaction, plus an outbox event.</li>
+          <li>Confirm (HELD → BOOKED) and release are <strong>idempotent, keyed by <code>hold_id</code></strong> — replays are no-ops.</li>
+          <li>Shard-readiness: every statement is single-trip; the service routes internally by <code>hash(trip_id)</code> from day one — one partition group now, N shards in Phase 3, zero API change.</li>
+        </ul>
+        <p class="done"><b>Done when</b> the 100k-contender proof test passes — <strong>gated at Week 5 before commerce builds on it</strong>; the segment matrix test passes exhaustively; the hold-expiry race test passes; a Redis flush during active holds loses zero seats; p95 hold acquisition &lt;250 ms at 5k holds/min sustained; no query in the service lacks <code>trip_id</code> in its WHERE clause (lint-enforced).</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P1-G</span> · Search Pipeline</h4>
+        <p class="facts"><b>Owner</b> 1–2 Go engineers · <b>Depends on</b> P1-E events, P1-A Kafka · <b>Weeks</b> 7–11</p>
+        <ul>
+          <li>Indexer: <code>trip.*</code> and <code>seat.*</code> events → Kafka → OpenSearch trip index (denormalised: route, stops, operator, bus type, amenities, fares, per-segment availability counts); locations and operators indexes.</li>
+          <li>Query API: origin/destination (alias-canonicalised), travel_date, passenger_count; filters (operator, bus type, AC, departure/arrival windows, price, amenities, boarding/dropping, availability); sorts (recommended, price, departure, duration, availability); Redis result cache with event-driven invalidation.</li>
+          <li>Search returns <em>approximate</em> availability; the seat map and the hold always hit inventory-service. Search may be stale; inventory may not.</li>
+        </ul>
+        <p class="done"><b>Done when</b> end-to-end index lag &lt;5s from <code>trip.created</code> to searchable; all filter/sort combinations covered by API tests; p95 search &lt;200 ms on a 10k-trip corpus; killing an OpenSearch node degrades latency but returns correct results; zero search queries touch PostgreSQL.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P1-H</span> · Commerce</h4>
+        <p class="facts"><b>Owner</b> 3 Go engineers + QA · <b>Depends on</b> the P1-F gate (wk5), P1-C · <b>Weeks</b> 6–13</p>
+        <ul>
+          <li>booking-service: full state machine (CREATED → PAYMENT_PENDING → CONFIRMED → TICKETED → COMPLETED; FAILED / EXPIRED / CANCELLED / REFUND_PENDING / REFUNDED / PARTIALLY_REFUNDED), <code>booking_status_history</code> on every transition. booking-service is the <strong>saga orchestrator</strong>.</li>
+          <li>Price engine: <code>Base + Taxes + Platform Fee + Operator Fee − Discount − Coupon = Total</code>; the full snapshot is <strong>frozen at hold time</strong>, stored on the hold and copied to the booking; historical prices are never recomputed.</li>
+          <li>payment-service: provider-independent interface (<code>createPayment</code> / <code>verifyPayment</code> / <code>getPaymentStatus</code> / <code>refundPayment</code> / <code>handleWebhook</code>); adapters for <strong>bKash and Nagad</strong> (sandbox-live), card and bank (sandbox/stub), <strong>cash and agent-wallet</strong> (internal, fully functional — these prove the flow with no external dependency). The webhook chain is enforced in order: verify signature → verify with provider → amount → currency → booking → idempotency (<code>UNIQUE(provider, provider_txn_id)</code>) → confirm.</li>
+          <li>ticket-service: <code>booking.confirmed</code> → PNR → ticket → <strong>signed opaque QR token</strong> (rotatable keys, no PII in the token) → notification event. QR states VALID / BOARDED / CANCELLED / USED / EXPIRED.</li>
+          <li>Cancellation engine with policy resolution (operator &gt; route &gt; schedule &gt; class &gt; channel &gt; time-tier); refund engine (REQUESTED → APPROVED → PROCESSING → SUCCESS / FAILED / REJECTED) with inventory release, provider refund, notification and audit.</li>
+          <li><strong>Reschedule as a saga</strong>: hold new seats → compute fare delta → collect/refund → cancel old allocation → issue replacement ticket; any failure compensates fully.</li>
+          <li><strong>Double-entry ledger from day one</strong>: finance-service records balanced journal and ledger entries for every booking, payment and refund event. No finance UI yet — but Phase 2 inherits real data.</li>
+        </ul>
+        <p class="done"><b>Done when</b> the full happy path passes automated E2E; the webhook-storm test passes; every terminal booking state has balanced ledger entries (automated trial-balance check = 0); cancellation returns the policy-correct amount across all four tiers; the reschedule-failure test leaves the original ticket valid and the money whole.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P1-I</span> · Observability, Audit, Security, Contracts</h4>
+        <p class="facts"><b>Owner</b> Security engineer + 3 QA + 2 frontend + platform · <b>Depends on</b> P1-A · <b>Weeks</b> 1–14</p>
+        <ul>
+          <li>OpenTelemetry in the chassis — every request carries <code>request_id</code> and <code>trace_id</code> across gRPC, REST and Kafka; Grafana dashboards for every specified metric; Loki logs correlated by <code>trace_id</code>; SLO alerts paging the platform team.</li>
+          <li><strong>Immutable audit log</strong>: dedicated append-only store (partitioned, INSERT-only role, no UPDATE/DELETE grants) capturing actor, role, action, resource, before/after, IP, device and <code>request_id</code> — wired into the chassis so services get it for free.</li>
+          <li>Security baseline: TLS everywhere, mesh mTLS, PII column encryption (phone, email, NID) with KMS-managed keys, secrets vault, refresh-token rotation, WAF, secure headers, dependency and container scanning, signed webhooks.</li>
+          <li><strong>Contract testing as a CI gate</strong>: buf breaking-change detection on all protos; consumer-driven contracts (Pact) on the inventory ↔ booking ↔ payment ↔ ticket seams. A service cannot deploy past a broken contract.</li>
+          <li>Reference web client (Next.js): one flow — search, seat map, hold countdown, checkout, sandbox payment, ticket with QR. It is a test harness with a URL.</li>
+        </ul>
+        <p class="done"><b>Done when</b> one <code>trace_id</code> follows a booking across ≥4 services and 3 Kafka hops; the audit table provably rejects UPDATE and DELETE; a deliberately breaking proto change fails CI; PII columns are unreadable with database-only access; the reference client completes the full flow against STAGING.</p>
+      </div>
+
+      <h3>Sequencing — week by week</h3>
+      <p>Critical path: <strong>A → B → F (prototype) → F (gate wk5) → H → exit tests.</strong> Everything else parallels around it.</p>
+    </div>
+
+    <div class="tw weeks">
+      <table>
+        <thead><tr><th>Wk</th><th>Active</th><th>Milestone landing</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>A B I</td><td>Monorepo + CI skeleton; Terraform bootstrap; LOCAL/DEV up; schema conventions ratified; owner decisions confirmed</td></tr>
+          <tr><td>2</td><td>A B C F I</td><td>Service chassis v1 (OTel/outbox/idempotency); migration tooling live; <strong>seat-lock prototype starts on fixtures</strong>; identity schema</td></tr>
+          <tr><td>3</td><td>A B C D F I</td><td>DEV cluster + Linkerd + vault; OTP login working; BD gazetteer imported; inventory bitmask design reviewed and frozen</td></tr>
+          <tr><td>4</td><td>A C D F I</td><td><strong>Concurrency rig run #1: 100k contenders vs Seat A1 on DEV</strong>; RBAC engine + role seeds; operator CRUD; QA environment</td></tr>
+          <tr><td>5</td><td>C D F H I</td><td><strong>GATE: seat-lock proof signed — 1 winner, 0 double-holds, segment matrix exhaustive pass. Commerce build authorised.</strong> Kafka + schema registry live</td></tr>
+          <tr><td>6</td><td>D E F H I</td><td>Holds with Redis timers + PG sweeper; routes/segments/fares API; audit log service live; STAGING environment</td></tr>
+          <tr><td>7</td><td>E F G H I</td><td>Trip generation producing trips; booking state machine skeleton; payment interface + bKash sandbox connected; search indexer consuming <code>trip.created</code></td></tr>
+          <tr><td>8</td><td>E F G H I</td><td>Segment inventory integrated with real generated trips; price engine + frozen snapshots; contract tests gating CI</td></tr>
+          <tr><td>9</td><td>E F G H I</td><td><strong>Hold → booking → payment saga end-to-end in DEV (bKash sandbox)</strong>; Nagad sandbox; search filters/sorts complete; trip lifecycle complete</td></tr>
+          <tr><td>10</td><td>F G H I</td><td>Ticket/PNR/signed QR issuance; webhook verification chain hardened; expiry sweeper + reconciler proven; reference client starts</td></tr>
+          <tr><td>11</td><td>G H I</td><td>Cancellation + refund engines; <strong>ledger entries balancing for book/pay/refund</strong>; cash/agent-wallet/card adapters; PRE-PROD environment</td></tr>
+          <tr><td>12</td><td>H I</td><td>Reschedule saga + compensation; first service-death chaos drills on STAGING; dashboards + SLO alerts complete; PROD/DR pipelines dry-run</td></tr>
+          <tr><td>13</td><td>H I all</td><td><strong>Exit-gate proof tests executed (all six) on STAGING</strong>; performance tuning to p95 targets; security review + PII/secrets audit</td></tr>
+          <tr><td>14</td><td>all</td><td>Bug-burn; full gate suite green <strong>twice consecutively</strong>; runbooks; Phase 2 handoff with pilot-operator onboarding checklist</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h3>Data model delivered</h3>
+      <p>Decisions that are cheap now and brutal later.</p>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Domain</th><th>The decision that must be made now</th></tr></thead>
+        <tbody>
+          <tr><td><strong>IDENTITY</strong></td><td><code>audit_logs</code> and <code>otp</code> monthly range-partitioned from migration #1; users unsharded but UUIDv7-keyed so a later split is mechanical</td></tr>
+          <tr><td><strong>OPERATORS</strong></td><td><code>operator_id</code> tenancy column on every operator-scoped row plus RLS now. Changing tenancy enforcement later means auditing every query in the system</td></tr>
+          <tr><td><strong>FLEET</strong></td><td>Seat layout versions immutable once trip-referenced. Retrofitting this means re-deriving what every historical ticket meant</td></tr>
+          <tr><td><strong>LOCATION</strong></td><td>Canonical alias resolution at write time, so IDs — never spellings — are stored downstream</td></tr>
+          <tr><td><strong>ROUTES</strong></td><td>Fare and segment rows versioned-immutable; trips snapshot them. Mutating fares in place would corrupt the provenance of every frozen price snapshot</td></tr>
+          <tr><td><strong>SCHEDULE</strong></td><td><code>trips</code> monthly range-partitioned by service date; <code>trip_id</code> minted <em>only</em> by schedule-service — a single mint point is what makes <code>trip_id</code> a viable shard key</td></tr>
+          <tr><td><strong>INVENTORY</strong></td><td>Hash-partitioned by <code>trip_id</code> now, shard key <code>trip_id</code> later: one trip has exactly one authoritative owner. Implication accepted deliberately — inventory answers only single-trip questions, so cross-trip queries (my bookings, operator occupancy) are served by booking-service and analytics projections, never by fanning out across inventory shards</td></tr>
+          <tr><td><strong>BOOKING</strong></td><td>Monthly range-partitioned by <code>created_at</code>; PNR gets a global unique lookup index because PNR lookup must survive sharding; <code>trip_id</code> carried as a plain column, no FK across service databases</td></tr>
+          <tr><td><strong>PAYMENT</strong></td><td><code>UNIQUE(provider, provider_txn_id)</code> exists in migration #1. That constraint <em>is</em> the idempotency defence and cannot be added later without deduplicating history</td></tr>
+          <tr><td><strong>TICKETS</strong></td><td>QR is a signed opaque token with a key ID for rotation; no PII in the token, ever. The alternative is re-issuing every live QR later</td></tr>
+          <tr><td><strong>REFUNDS</strong></td><td>Every refund row links payment_id, booking_id and ledger journal_id from day one</td></tr>
+          <tr><td><strong>FINANCE</strong></td><td><code>ledger_entries</code> append-only, monthly partitioned, no UPDATE grant; corrections are reversing entries. Starting this in Phase 2 would mean a backfill that no auditor accepts</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h3>Distributed correctness</h3>
+      <p>No two-phase commit. <strong>Orchestrated saga with booking-service as orchestrator</strong> — the booking state machine <em>is</em> the saga state, giving one accountable owner for compensation — plus a <strong>transactional outbox in every producing service's own database</strong>. The outbox row is inserted in the same local ACID transaction as the state change; Debezium CDC relays to Kafka, with a poller as fallback. No service ever dual-writes to its database and to Kafka.</p>
+      <pre><code>client         gateway     inventory-svc          booking-svc            payment-svc         ticket-svc
+  │ POST /holds (Idem-Key K1)──►│
+  │                             │ ONE TX: conditional UPDATE per seat (all-or-nothing)
+  │                             │  + seat_holds + inventory_events + outbox(seat.held)
+  │◄─ hold_id, expires_at ──────┘
+  │ POST /bookings {hold_id} (K2)──────────────────►│
+  │                             │◄─gRPC ValidateAndExtendHold(hold_id)
+  │                             │  (extend to payment window; fail → booking FAILED)
+  │                             │                   │ TX: booking PAYMENT_PENDING + outbox
+  │◄─ booking_id ──────────────────────────────────┘
+  │ POST /payments {booking_id} (K3)──────────────────────────────►│ create provider intent
+  │        …customer completes bKash checkout…                     │
+ provider ══ webhook ══════════════════════════════════════════►  │ verify: signature→provider
+                                                                  │   →amount→currency→booking
+                                                                  │   →idempotency(provider_txn_id)
+                                                                  │ TX: payment PAID + outbox
+              booking-svc ◄── Kafka: payment.succeeded ───────────┘
+              │ TX: booking CONFIRMED + outbox(booking.confirmed)
+              │ gRPC inventory.ConfirmSeats(hold_id) → HELD→BOOKED
+              │      (guarded WHERE (segment_hold_mask & mask) = mask, idempotent)
+              │ Kafka: booking.confirmed ──────────────────────────────────► issue PNR+ticket+QR
+              │                                                              (idempotent on booking_id)</code></pre>
+      <p><strong>Idempotency propagation.</strong> The client supplies an <code>Idempotency-Key</code> on every public mutation; the owning service stores <code>(key, actor, endpoint, request_hash, response)</code> and replays the stored response on retry. Derived internal operations use <strong>deterministic keys</strong> — confirm-seats key = <code>hold_id</code>, ticket key = <code>booking_id</code>, compensation-refund key = <code>payment_id</code> — so retries at any hop collapse to a single effect.</p>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Failure</th><th>Outcome</th></tr></thead>
+        <tbody>
+          <tr><td>Seat 2 of 3 already taken</td><td>Transaction rolls back, zero seats held, 409 with alternates</td></tr>
+          <tr><td>Hold expires before booking</td><td><code>ValidateAndExtendHold</code> fails → booking FAILED, no money moved</td></tr>
+          <tr><td>Payment webhook lands after hold lost</td><td><code>ConfirmSeats</code> returns SEAT_LOST → compensation: <code>refundPayment</code> with deterministic key, booking → FAILED_REFUNDED, passenger notified. Money returns rather than seats double-selling</td></tr>
+          <tr><td>Duplicate webhook ×100</td><td><code>UNIQUE(provider, provider_txn_id)</code> → one payment row, one outbox event, 99 acknowledged no-ops</td></tr>
+          <tr><td><strong>payment-service dies mid-flow</strong></td><td>Booking sits PAYMENT_PENDING; the PG-driven sweeper releases the hold at expiry and booking → EXPIRED. If the provider actually charged, the reconciliation job finds the orphaned charge and auto-refunds it. No orphaned holds, no unpaid tickets</td></tr>
+          <tr><td>ticket-service down</td><td>Booking stays CONFIRMED; issuance is <strong>retried from Kafka, never compensated</strong> — the consumer group redelivers, idempotent on <code>booking_id</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h3>APIs &amp; events delivered</h3>
+      <p><strong>Public REST under <code>/api/v1/</code></strong> — gateway-fronted, every mutation accepting <code>Idempotency-Key</code>: <code>auth/*</code> · <code>locations/*</code> · <code>operators/*</code> · <code>fleet/*</code> · <code>routes/*</code> · <code>schedules/*</code> · <code>trips/{id}</code> (+ <code>/seatmap</code>, <code>/availability</code>) · <code>search</code> · <code>holds</code> · <code>bookings</code> (+ <code>/cancel</code>, <code>/reschedule</code>) · <code>payments</code> (+ signed, IP-restricted <code>payments/webhooks/{provider}</code>) · <code>tickets/{id}</code> (+ <code>/qr/verify</code>) · <code>refunds/*</code> · <code>admin/*</code>.</p>
+      <p><strong>Internal gRPC</strong> — mesh mTLS only, never gateway-exposed: <code>inventory.v1</code> (AcquireHold, ValidateAndExtendHold, ConfirmSeats, ReleaseHold, GetSeatMap) · <code>pricing.v1</code> · <code>identity.v1</code> · <code>ticket.v1</code> · <code>ledger.v1</code>.</p>
+      <p><strong>Kafka topics</strong> — standard envelope, schema-registry enforced, DLQ per consumer group: <code>user.created</code> · <code>operator.created</code> · <code>trip.created|updated|cancelled</code> · <code>seat.held|released|booked</code> · <code>booking.created|confirmed|cancelled</code> · <code>payment.created|success|failed</code> · <code>ticket.issued</code> · <code>refund.requested|completed</code>.</p>
+
+      <h3>The non-negotiables</h3>
+      <ol>
+        <li><strong>Every channel calls the same Inventory Service.</strong> No seat logic in web, POS, agent, partner or app code — ever. This is the load-bearing wall of the entire company.</li>
+        <li><strong>Never SELECT-then-UPDATE for seats.</strong> Conditional UPDATE; the rowcount is the verdict. Code review rejects violations and a lint rule hunts them.</li>
+        <li><strong>The browser success page never confirms payment.</strong> Only the verified webhook chain confirms. The success page reads state; it never writes it.</li>
+        <li><strong>Price snapshots are frozen at hold time.</strong> Historical bookings are never repriced from current fare rules.</li>
+        <li><strong>The double-entry ledger records entries from day one</strong> — even though the finance UI is Phase 2. Phase 2 opens the books on real, balanced data. There is no backfill, because auditors don't accept backfills.</li>
+        <li>Every mutation is idempotent — public via <code>Idempotency-Key</code>, internal via deterministic keys. No exceptions, including "internal-only" endpoints.</li>
+        <li>PostgreSQL is authoritative; Redis is an accelerator. If Redis vanishes, no seat, hold or payment fact is lost.</li>
+        <li>Outbox or it didn't happen: no service publishes to Kafka outside its transactional outbox.</li>
+        <li>No service touches another service's database. All cross-service reads are API- or event-fed projections.</li>
+        <li>Every inventory row carries <code>trip_id</code>; no inventory query spans trips.</li>
+        <li>The audit log is append-only at the grant level, not by convention.</li>
+        <li>A request without a propagated <code>trace_id</code> is a build failure, not a style nit.</li>
+      </ol>
+
+      <h3>Risks &amp; mitigations</h3>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>#</th><th>Risk</th><th>Mitigation</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><em>(Microservices)</em> Contract churn across 21 services stalls teams in integration hell</td><td>Protos in the monorepo; buf breaking-change CI; consumer-driven Pact tests on the inventory ↔ booking ↔ payment ↔ ticket seams; contract-freeze review every Friday from Week 6</td></tr>
+          <tr><td>2</td><td><em>(Microservices)</em> Saga bugs create orphaned holds or unpaid tickets that unit tests never catch</td><td>Orchestrated saga with a single owner; deterministic compensation keys; the service-death test is an exit-gate item, not an afterthought; reconciliation job from Week 10</td></tr>
+          <tr><td>3</td><td>Seat-lock design flaw discovered late, after commerce is built on it</td><td>Prototype on fixtures in Week 2; the 100k proof gated Week 5 <strong>before</strong> commerce is authorised; bitmask design frozen by review in Week 3</td></tr>
+          <tr><td>4</td><td>bKash/Nagad merchant approval slips past Phase 1</td><td>Sandbox from Week 1, merchant filing Week 1; provider-independent interface; cash and agent-wallet adapters prove the full flow with zero external dependency</td></tr>
+          <tr><td>5</td><td><em>(Microservices)</em> A 3-person platform team drowns operating 7 environments, a mesh and Kafka for 21 services</td><td>Managed services throughout; Linkerd over Istio; golden-path chassis so service teams self-serve deploys; PROD/DR minimal-footprint until Week 12</td></tr>
+          <tr><td>6</td><td>Redis quietly becomes the source of truth for holds under deadline pressure</td><td>PG <code>expires_at</code> authoritative plus a 15s sweeper in the design from day one; a chaos drill that flushes Redis with active holds is a standing STAGING test</td></tr>
+          <tr><td>7</td><td>Route or fare mutation corrupts segment masks or frozen snapshots</td><td>Trips snapshot the segment map and layout version at generation; fares and layouts versioned-immutable once referenced; mutation attempts rejected at the API</td></tr>
+          <tr><td>8</td><td>Scope creep toward storefront features "since the frontend engineers are free"</td><td>Reference client scope fixed at one flow; the EM owns the no-list; surplus frontend time goes to contract tests and the Phase 2 design-system spike</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <div class="gate">
+        <span class="meta">Phase 1 exit gate — hard proof tests</span>
+        <p>Run on STAGING against production-shaped data, results archived. The suite must pass <strong>twice consecutively</strong>.</p>
+        <ol>
+          <li><strong>Seat A1 stampede.</strong> 100,000 concurrent hold requests (≥500 workers, randomised jitter ≤50 ms) for the same seat and segment. Pass: exactly 1 hold acquired, 99,999 clean 409s, <code>inventory_events</code> shows exactly one acquisition, 0 duplicate tickets after driving the winner through to ticketed. Repeat at segment level — the winner holds Dhaka→Cumilla; verify Cumilla→Chattogram remains acquirable during and after.</li>
+          <li><strong>Webhook storm.</strong> Fire the identical signed webhook 100× concurrently and 100× sequentially, plus 50 with tampered signature, wrong amount and wrong currency (all rejected). Pass: 1 payment row, 1 booking confirmation, 1 ticket, 1 ledger journal; 199 idempotent no-op acknowledgements.</li>
+          <li><strong>Segment-inventory matrix.</strong> For a 4-stop trip, exhaustively test all 6 segment-pair combinations concurrently. Pass: a seat sold Dhaka→Cumilla is sellable Cumilla→Chattogram; every overlapping pair yields exactly one winner; final masks match an oracle model recomputed from <code>inventory_events</code>.</li>
+          <li><strong>Hold-expiry race.</strong> Schedule a webhook to arrive in a ±2s window around hold expiry, 500 iterations. Pass: every iteration ends in exactly one of {confirmed booking with BOOKED seat} or {refunded payment with released seat}; zero end paid-and-unrefunded or seat-BOOKED-and-unpaid.</li>
+          <li><strong>Reschedule-failure compensation.</strong> Inject failure at each reschedule step, 4 × 50 runs. Pass: the original ticket remains VALID, new holds released, net money movement zero, ledger balanced, every compensation visible in audit.</li>
+          <li><strong>Service death.</strong> <code>kill -9</code> payment-service pods mid-flow at three points under live traffic. Pass: after restart plus the reconciliation window (≤5 min), zero orphaned holds, zero unpaid tickets, any provider-charged orphans auto-refunded, Kafka consumer lag back to baseline. Repeat for inventory-service and booking-service.</li>
+        </ol>
+        <p style="margin-bottom:0"><strong>Performance gate</strong> — p95 under sustained mixed load of 2,000 RPS search / 300 holds per minute / 150 bookings per minute: all seven targets met. Any miss blocks exit. <strong>Phase 2 does not start on a red gate.</strong></p>
+      </div>
+    </div>
+
+    <div class="wrap phase-head">
+      <div class="num">Phase 2 of 3</div>
+      <h2 id="phase2">Every Channel, the Money, and the Road</h2>
+      <div class="span">Weeks 15–30 · ~38 engineers</div>
+    </div>
+
+    <div class="tw kv">
+      <table>
+        <tbody>
+          <tr><th>Headcount</th><td>12 Go, 8 frontend, 4 Flutter, 3 platform/SRE, 1 DBA, 1 analytics engineer, 5 QA automation, 1 security, 2 product/BA, 1 EM</td></tr>
+          <tr><th>Hiring ramp</th><td>All 4 Flutter + 9 Go by W15; all 12 Go + 6 FE by W16; all 8 FE, DBA, 3 platform by W17; 5 QA + security by W18; analytics engineer + both BA by W19. <strong>Every week of slip on Go/Flutter hires slips the pilot 1:1</strong></td></tr>
+          <tr><th>Done means</th><td>1–3 real operators sell real tickets for real taka on every channel, buses are tracked live, and 14 consecutive pilot days close with zero unexplained ledger variance</td></tr>
+          <tr><th>Hardest risk</th><td>Money correctness across four sales channels — one reconciliation design flaw discovered during the pilot poisons trust with the first operators</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h3>What Phase 2 delivers</h3>
+      <p>By week 30 the business genuinely operates. Passengers search, pay with bKash/Nagad, and hold QR tickets on the website and the Flutter app. Counter staff open shifts, sell for cash, print thermal tickets, and close drawers that balance to the taka. Agents and sub-agents sell against wallet balance and credit limits and earn commission. Operators run branches, fleet, fares, schedules and staff through an ERP. Drivers run trips from their app; helpers scan boarding QRs on bad networks; passengers watch the bus move and get "bus approaching" SMS in Bangla. Every taka flows through the double-entry ledger, settles to operators through seven states, and reconciles three ways against gateway and bank. Support answers any question about any booking from a single timeline.</p>
+
+      <div class="rule">
+        <span class="meta">The rule that governs this phase</span>
+        <p>Phase 2 adds channels and money. It adds <strong>zero</strong> new seat logic. Web, app, counter, agent, ERP and driver flows all call the Phase 1 inventory-service for every hold, sale, seat change, reschedule and release. Any PR implementing seat state outside inventory-service is rejected on sight — enforced by contract tests, not by trust.</p>
+      </div>
+
+      <p>Seven services graduate to full independent deployables this phase — agent, finance, tracking, notification, support, promotion and analytics — completing all 21 services in production.</p>
+
+      <h3>Entry criteria</h3>
+      <p><strong>Technical</strong> — from Phase 1, verified at the week 14 gate review and re-verified in week 15:</p>
+      <ul>
+        <li>Concurrency proof passing in CI: 100K contenders for one seat → exactly 1 reservation; webhook fired 100× → 1 payment, 1 confirmation, 1 ticket.</li>
+        <li>Segment inventory proven; p95 targets met at pilot-scale load.</li>
+        <li>Ledger already writing balanced entries for every booking, payment, refund and reschedule; a replayed month of synthetic traffic balances to zero.</li>
+        <li>Idempotency keys on all mutations; audit log capturing actor/before/after; OTel traces end to end; shard-ready schema in place.</li>
+      </ul>
+      <p><strong>Business and legal</strong> — long lead times, driven by product/BA from week 15. Done by the stated week or the pilot slips:</p>
+      <ul>
+        <li>Platform bank account + escrow/collection account operational <span class="tag">W18</span></li>
+        <li>Live bKash and Nagad <strong>production</strong> merchant credentials — MFS onboarding takes 4–8 weeks, so file paperwork in week 15 <span class="tag">W20</span></li>
+        <li>Signed settlement agreements with pilot operators: cycle, commission %, withholding, dispute terms <span class="tag">W22</span></li>
+        <li>Agent KYC process defined and legal-reviewed: NID, trade licence, guarantor for credit lines <span class="tag">W20</span></li>
+        <li>Written cash-handling policy for counters: float limits, ৳50 drawer variance tolerance, escalation, insurance <span class="tag">W21</span></li>
+        <li>Apple/Google developer accounts + D-U-N-S verification started <span class="tag">W15</span></li>
+      </ul>
+
+      <h3>Workstreams</h3>
+
+      <div class="ws">
+        <h4><span class="id">P2-A</span> · Passenger Website</h4>
+        <p class="facts"><b>Owner</b> 3 FE + 0.5 Go (BFF) · <b>Depends on</b> Phase 1 APIs, P2-K · <b>Weeks</b> 15–24</p>
+        <ul>
+          <li>Every page: Home, Search, Results, Trip Details, Seat Selection, Checkout, Payment (bKash/Nagad/card redirect flows), Confirmation, Ticket, Cancellation, Refund, Reschedule, Tracking, Support, Offers.</li>
+          <li>Full account area: upcoming/past trips, saved passengers, payments, tickets, refunds, notifications, profile, device and session management.</li>
+          <li>Bangla + English localisation; guest checkout; SSR for search and SEO pages.</li>
+        </ul>
+        <p class="done"><b>Done when</b> a passenger completes search → seat → bKash → ticket with no human help; reschedule and cancellation are self-serve end to end; the success page never confirms payment (webhook-only, verified by test); Lighthouse ≥90 on search and checkout; all seat interactions provably hit inventory-service.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P2-B</span> · Passenger Flutter App</h4>
+        <p class="facts"><b>Owner</b> 2.5 Flutter · <b>Depends on</b> P2-A API surface, P2-K push · <b>Weeks</b> 15–27</p>
+        <ul>
+          <li>All web functionality plus biometric login, push notifications, offline ticket + QR (signed token cached on device), live bus tracking, boarding reminders, saved routes.</li>
+          <li><strong>App-store review is a schedule dependency, not an afterthought:</strong> developer accounts + D-U-N-S in week 15; internal/TestFlight build W21; production submission W24 with review buffer; an Apple rejection loop budgeted at 10 days. Soft launch W27, pilot routes only.</li>
+        </ul>
+        <p class="done"><b>Done when</b> the offline ticket renders and its QR scans with the phone in airplane mode; push booking confirmation arrives &lt;30s; both stores approved before W27; crash-free rate ≥99.5% in soft launch.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P2-C</span> · Operator ERP</h4>
+        <p class="facts"><b>Owner</b> 2 FE + 1.5 Go · <b>Depends on</b> Phase 1 catalog APIs; P2-F for finance modules · <b>Weeks</b> 15–24</p>
+        <ul>
+          <li>All modules: Dashboard, Branches, Users, Roles, Fleet, Seat Layouts, Routes, Stops, Schedules, Trips, Fare Management, Boarding, Counters, Drivers, Agents, Bookings, Refunds, Finance, Settlements, Analytics, Documents, Settings.</li>
+          <li>Bulk CSV import for fleet, routes and fares — this is what makes pilot onboarding survivable.</li>
+        </ul>
+        <p class="done"><b>Done when</b> a pilot operator is fully configured (fleet → layouts → routes → fares → schedules → staff → counters) by their own trained staff in ≤2 days using bulk import; the operator can see their settlement statement and raise a dispute; RBAC blocks a Dispatcher from Finance screens.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P2-D</span> · Counter POS + Offline Handling</h4>
+        <p class="facts"><b>Owner</b> 1.5 FE + 2 Go · <b>Depends on</b> inventory/booking APIs, P2-F · <b>Weeks</b> 16–25</p>
+        <ul>
+          <li>Full flow: search → trip → live seat map → passenger details → cash/card/MFS → ticket → thermal print (ESC/POS). Cancellation, reschedule, seat change, passenger edits, reprint (watermarked DUPLICATE), cash drawer, shift open/close, counter reports.</li>
+          <li>Shift lifecycle: <code>OPEN (float declared) → SELLING → CLOSING (count) → BALANCED | VARIANCE (manager approval + ledger writedown)</code>.</li>
+        </ul>
+        <p><strong>Offline policy — exact and non-negotiable.</strong> Offline selling from shared inventory is forbidden: an offline terminal cannot see authoritative seat state, so it can sell a seat the website sold seconds earlier — two passengers, one seat, a cash dispute at the bus door, and a ledger that can only balance via manual writedown.</p>
+        <ul>
+          <li><strong>May do offline</strong> — validate boarding QRs against cached manifests, reprint issued tickets, view cached trips and manifests, record drawer events locally.</li>
+          <li><strong>May sell offline</strong> — only pre-allocated counter-quota seats. While online, the counter reserves N specific seats which inventory-service marks BLOCKED-for-counter (exclusively owned); offline sales issue only from that downloaded quota, with serialised offline ticket numbers.</li>
+          <li><strong>May never do offline</strong> — hold, sell, change or release any non-quota seat.</li>
+          <li><strong>On reconnect</strong> — replay queue with per-transaction <code>idempotency_key</code> and monotonic per-terminal sequence numbers; inventory-service converts quota → BOOKED; cash entries post with original timestamps; <strong>the shift cannot close while the replay queue is non-empty.</strong></li>
+        </ul>
+        <p class="done"><b>Done when</b> a shift closes and matches the ledger to the taka; an airplane-mode terminal sells only quota seats and rejects everything else; reconnect replay is idempotent under repeated replays (the test kills the process mid-replay); thermal print works on the two printer models bought for pilot counters.</p>
+      </div>
+
+      <div class="ws critical">
+        <h4><span class="id">P2-E</span> · Agent Platform, Wallet, Commission</h4>
+        <p class="facts"><b>Owner</b> 2.5 Go + 1 FE · <b>Depends on</b> P2-F ledger core · <b>Weeks</b> 15–24</p>
+        <ul>
+          <li>Agency → agent → sub-agent hierarchy; portal covering ticket sales, customer management, cancellation, reports, commission statements, wallet recharge (bKash/Nagad/bank deposit with maker-checker), transaction history.</li>
+          <li>The wallet is a <strong>ledger, not a balance column</strong>: <code>wallet_accounts</code>, append-only <code>wallet_transactions</code>, <code>wallet_holds</code>, <code>wallet_adjustments</code>. Three figures always derivable: AVAILABLE, HELD, CREDIT LIMIT. Sale flow: atomic hold (<code>available + credit − held ≥ price</code>, single conditional update) → capture on ticket → release on expiry or failure.</li>
+          <li>Commission engine: fixed, percentage and tiered; rules dimensioned by operator, route, trip, agent, counter, sales channel, promotion and ticket class; most-specific-rule-wins with explicit precedence; every commission lands as ledger entries, never a direct balance bump.</li>
+        </ul>
+        <p class="done"><b>Done when</b> 1,000 concurrent purchase attempts against a wallet with credit for 10 tickets yield ≤10 sales and 0 oversell; a sub-agent sale credits the correct split up the hierarchy; recharge requires maker-checker; wallet figures recomputed from transactions match cached figures after chaos-killing the service mid-sale.</p>
+      </div>
+
+      <div class="ws critical">
+        <h4><span class="id">P2-F</span> · Finance Core: Ledger, Settlement, Reconciliation</h4>
+        <p class="facts"><b>Owner</b> 3 Go + DBA + finance BA · <b>Depends on</b> Phase 1 ledger skeleton · <b>Weeks</b> 15–25</p>
+        <ul>
+          <li>Full chart of accounts live: Cash, Gateway Clearing (per provider), Customer Receivable, Operator Payable, Agent Payable, Refund Payable, Platform Revenue, Commission Expense, Gateway Fee, Tax Payable, Promotional Expense. Posting rules for every money event on every channel.</li>
+          <li>Operator settlement through all seven states: <code>OPEN → CALCULATED → REVIEWED → APPROVED → PAYMENT_INITIATED → PAID → RECONCILED</code>; daily/weekly/custom cycles, manual adjustment, withholding, dispute, generated settlement statement PDF. APPROVED requires maker-checker.</li>
+          <li>Three-way reconciliation: platform ledger vs gateway settlement files vs bank statement. Detects every exception class — missing transaction, duplicated transaction, incorrect amount, reversed transaction, callback failure, failed refund, missing bank settlement — with an exception queue carrying classification, ageing and assignment.</li>
+        </ul>
+        <p class="done"><b>Done when</b> a synthetic month replays to a zero-variance trial balance; a settlement runs OPEN → RECONCILED against seeded gateway and bank files containing all seven exception classes, each detected and queued; an unresolved exception provably blocks settlement APPROVED; ledger writes are append-only (UPDATE/DELETE revoked at the database grant level).</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P2-G</span> · Admin Dashboard + Support Console</h4>
+        <p class="facts"><b>Owner</b> 1.5 FE + 1 Go · <b>Depends on</b> most services (read paths) · <b>Weeks</b> 18–26</p>
+        <ul>
+          <li>Admin: customers/operators/agents/counters; buses/locations/routes/trips; bookings/tickets/payments/refunds; promotions/commissions; finance/settlements/reconciliation; risk placeholder; support; reports; audit; configuration/permissions/system health.</li>
+          <li>Support console: search by phone, email, PNR, ticket, booking or payment; the full booking timeline (seat held → payment started → payment success → ticket issued → SMS sent → trip changed → cancellation → refund) assembled from events and the audit log; every support action permission-controlled and audited.</li>
+        </ul>
+        <p class="done"><b>Done when</b> support resolves "where is my refund?" from one screen without engineering help; every admin mutation appears in the audit log with before/after; an Auditor role can see everything and change nothing.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P2-H</span> · Promotions + Referral</h4>
+        <p class="facts"><b>Owner</b> 1 Go + shared FE · <b>Depends on</b> pricing engine, P2-F · <b>Weeks</b> 20–26</p>
+        <ul>
+          <li>All types: coupon, automatic discount, new-user, route campaign, operator campaign, payment promotion, referral, agent promotion, limited quantity. Rules: start/end, route, operator, user, minimum amount, max discount, usage limit, per-user limit. Redemption is atomic.</li>
+          <li>Referral: invite → registered → qualified booking → reward (wallet credit, coupon or points), with reward issuance posting to the ledger.</li>
+        </ul>
+        <p class="done"><b>Done when</b> a limited-quantity coupon under 1,000 concurrent redemptions never exceeds its cap; discounts appear in the frozen price snapshot and as Promotional Expense entries; per-user limits hold across channels.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P2-I</span> · Driver App, Crew Mode, Boarding</h4>
+        <p class="facts"><b>Owner</b> 1.5 Flutter + 1 Go · <b>Depends on</b> ticket/QR service, P2-J · <b>Weeks</b> 16–24</p>
+        <ul>
+          <li>Driver app: assigned trips, bus, route, departure, stops, passenger manifest, navigation handoff, operational alerts; emits GPS; trip state controls (BOARDING → DEPARTED → ARRIVED).</li>
+          <li>Crew/helper mode: scan ticket, verify passenger, mark boarded, mark no-show, view list, report incident.</li>
+          <li>Boarding chain: QR → signed-token verify → trip match → not cancelled → not already used → mark BOARDED → emit <code>ticket.boarded</code>. <strong>Intermittent-connectivity tolerance:</strong> manifest and token public keys sync pre-trip; offline scans validate locally against the cached manifest, queue boarded-marks and sync opportunistically. A seat scanned on two devices flags at next sync for crew resolution; the central system remains authoritative.</li>
+        </ul>
+        <p class="done"><b>Done when</b> a boarding scan works in airplane mode against a pre-synced manifest and syncs correctly on reconnect; a ticket cancelled after sync is caught at sync and flagged; scan-to-result &lt;2s p95 offline and &lt;3s online; a double-scan of one QR on two devices is detected.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P2-J</span> · Tracking: GPS, Live Map, ETA, Ops Control</h4>
+        <p class="facts"><b>Owner</b> 2 Go + 1 platform · <b>Depends on</b> Kafka, P2-I · <b>Weeks</b> 16–26</p>
+        <p>Ingestion from all three sources — driver app, hardware GPS devices, third-party providers — through one Location Gateway:</p>
+        <pre><code>Driver App / HW GPS / 3rd-party ─► Location Gateway ─► Kafka(bus.location.updated)
+        ─► Location Processor ─► Redis (current position, TTL) ─► web/app/OCC
+                              └─► ClickHouse (history)</code></pre>
+        <ul>
+          <li>Live passenger tracking (position, ETA, distance, next stop, delay, route progress — ticket-scoped access); ETA v1 from current location + route + historical segment times + velocity + stop dwell.</li>
+          <li>Operations Control Center with all seven alert types: Late Departure, Long Stop, Route Deviation, GPS Offline, Unexpected Bus Stop, Trip Cancellation, Bus Breakdown.</li>
+          <li>Replacement bus: replace → automatic seat remap → conflict detection → crew resolution queue → passenger notification. Breakdown/incident module covering breakdown, accident, route interruption, replacement vehicle, passenger relocation, refund eligibility.</li>
+        </ul>
+        <p class="done"><b>Done when</b> a load test at 20× the pilot event rate runs with lag &lt;5s; a bus going dark raises GPS Offline within 3 min; a replacement bus with a smaller layout produces a conflict list rather than a silent double-assignment; the passenger map updates ≤10s behind reality.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P2-K</span> · Notification Platform</h4>
+        <p class="facts"><b>Owner</b> 1.5 Go, then 1 · <b>Depends on</b> Kafka · <b>Weeks</b> 15–22 — <em>starts first, six workstreams depend on it</em></p>
+        <ul>
+          <li>Channels: SMS (two Bangladeshi aggregators for failover), email, push (FCM/APNs), WhatsApp if the BSP contract lands. Template engine with Bangla and English variants; per-event routing (booking confirm → SMS + push; bus approaching → push with SMS fallback; refund → SMS + email); per-channel cost tracking and a monthly budget circuit-breaker.</li>
+          <li>All events: booking confirmation, ticket, reminder, bus approaching, bus delayed, trip cancellation, route change, refund, reschedule.</li>
+        </ul>
+        <p class="done"><b>Done when</b> every event delivers in both languages per passenger preference; SMS aggregator failover proven by killing the primary in staging; every attempt recorded in <code>notification_attempts</code> with cost; the cost breaker halts a runaway loop without touching the transactional booking flow.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P2-L</span> · Analytics: Kafka → ClickHouse, Reports, Dashboard</h4>
+        <p class="facts"><b>Owner</b> analytics engineer + 0.5 Go + DBA · <b>Depends on</b> Kafka topics from all services · <b>Weeks</b> 17–27</p>
+        <ul>
+          <li>ClickHouse ingest of all domain events; <strong>zero heavy reporting queries against the booking PostgreSQL</strong> — enforced, not requested: reporting services have no PostgreSQL grants.</li>
+          <li>Platform reports: GBV, revenue, bookings, cancellations, refunds, occupancy, payment conversion, search conversion, operator performance, route performance. Operator reports embedded in the ERP.</li>
+          <li>Real-time dashboard: online users, searches/sec, bookings/min, revenue, seats held, payment success/failure, active trips, GPS buses, system errors.</li>
+        </ul>
+        <p class="done"><b>Done when</b> dashboard numbers lag reality &lt;60s; ClickHouse booking counts match PostgreSQL daily; operator report totals tie to their settlement statement; the primary database shows zero reporting query load under monitoring.</p>
+      </div>
+
+      <h3>Sequencing — week by week</h3>
+      <p>► marks the critical path: <strong>P2-F ledger/settlement → P2-E wallet + P2-D shifts → money rehearsals → readiness gate → pilot → 14-day clean streak.</strong></p>
+    </div>
+
+    <div class="tw weeks">
+      <table>
+        <thead><tr><th>Wk</th><th>Active</th><th>Milestone landing</th></tr></thead>
+        <tbody>
+          <tr><td>15</td><td>A B C E F K</td><td>►Chart of accounts live; 7 new service deployables scaffolded in CI/CD; app-store accounts + MFS production paperwork filed; notification skeleton up</td></tr>
+          <tr><td>16</td><td>+ D I J</td><td>►Posting rules replay Phase 1 money events to zero variance; wallet schema; Location Gateway ingesting driver-app pings</td></tr>
+          <tr><td>17</td><td>+ L</td><td>►Wallet hold/credit concurrency test green; POS sell flow v1; ERP fleet/route/schedule modules; ClickHouse ingest live</td></tr>
+          <tr><td>18</td><td>+ G</td><td>►Shift open/close + cash drawer posting to ledger; commission rule engine; tracking Redis current-state; boarding scan v1</td></tr>
+          <tr><td>19</td><td>all</td><td>►Settlement OPEN→CALCULATED; agent portal selling via wallet; live map in staging; Bangla/English templates done</td></tr>
+          <tr><td>20</td><td>all</td><td>►Three-way reconciliation engine vs seeded gateway/bank files; OCC alpha (all 7 alerts); support timeline; MFS production credentials live</td></tr>
+          <tr><td>21</td><td>all</td><td>App internal/TestFlight build submitted; counter offline quota implemented; promotions engine; ETA v1; admin core</td></tr>
+          <tr><td>22</td><td>all</td><td>►<strong>Money rehearsal #1</strong>: synthetic week, all four channels → settlement → reconciliation, exceptions injected; offline boarding tests pass</td></tr>
+          <tr><td>23</td><td>all</td><td>Pilot operator #1 data onboarded via ERP bulk import; counter hardware field kits; referral live; reports v1</td></tr>
+          <tr><td>24</td><td>all</td><td>►<strong>Dress rehearsal</strong>: multi-channel same-trip sale proof, shift-balance proof, full settlement cycle proof; <strong>app production submission</strong>; counter staff trained</td></tr>
+          <tr><td>25</td><td>all</td><td>►<strong>Feature freeze. Readiness gate</strong>: go/no-go checklist, kill-switch drill, seeded-exception reconciliation drill, runbooks signed</td></tr>
+          <tr><td>26</td><td>pilot</td><td>►<strong>PILOT GO-LIVE</strong> — operator 1, 2 routes, war room, daily reconciliation ritual begins</td></tr>
+          <tr><td>27</td><td>pilot</td><td>Operators 2–3 onboarded if week 26 clean; app soft launch on pilot routes</td></tr>
+          <tr><td>28</td><td>pilot + hardening</td><td>Pilot ops; fix queue burn-down; notification cost tuning; GPS gap analysis; first real weekly settlement CALCULATED</td></tr>
+          <tr><td>29</td><td>pilot + hardening</td><td>►First real settlement reaches PAID → RECONCILED against an actual bank file; exit-gate proof tests executed</td></tr>
+          <tr><td>30</td><td>pilot + exit</td><td>►14-day zero-unexplained-variance streak completes; exit review; fraud and demand datasets handed to Phase 3</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h3>The pilot</h3>
+      <p><strong>Operator selection (1–3).</strong> 10–30 buses; a single high-frequency corridor on the Dhaka–Chattogram profile, so multi-stop segment sales matter; 2–4 physical counters; a bank account and a signed settlement agreement; an owner personally committed and willing to run a paper-manifest parallel backup for week one; staff available for two days of training. Operator 1 goes alone in week 26; operators 2–3 join in week 27 only if week 26 closes clean.</p>
+      <p><strong>Scope.</strong> 2–4 routes, ≤20 trips/day, ≤~1,000 tickets/day.</p>
+      <ul>
+        <li><strong>In:</strong> web, soft-launched app, counter POS (cash + MFS), 1–2 agents per operator with wallet credit capped at ৳50,000, bKash and Nagad live, boarding scans, live tracking, notifications, cancellations/refunds/reschedules, weekly settlement, one controlled coupon campaign.</li>
+        <li><strong>Out, deliberately:</strong> partner API, white label, AI features, dynamic pricing, marketing spend or growth pushes, agent credit above the cap, interlining, the card gateway if not certified in time, and referral rewards in cash (coupon only during pilot).</li>
+      </ul>
+      <p><strong>Daily reconciliation ritual.</strong> 23:30 — counters close shifts; automated pull of bKash/Nagad merchant statements; agent wallet snapshot; three-way match runs. 09:00 next day — a 30-minute finance stand-up covering yesterday's trial balance, with the exception queue triaged and every exception classified within 24h. <strong>Any unexplained taka variance stop-sells the affected channel until explained.</strong> A one-page daily pilot P&amp;L goes to the owner and each operator.</p>
+      <p><strong>Kill switch.</strong> Per-channel sell flags at the gateway — web, app, counter and agent independently disableable in under a minute — plus a global stop-sell that blocks new holds while preserving boarding, refunds and tracking for passengers already ticketed. Full rollback: stop-sell → refund queue drains automatically → hourly printed manifests let the operator revert to manual sales. Target: decision to safe-state in under 5 minutes.</p>
+      <p><strong>Success metrics.</strong> 0 double-bookings and 0 double-boardings; 0 unexplained ledger variance; MFS payment success ≥95%; boarding scan &lt;3s p95; GPS coverage ≥90% of trip time; settlements paid on schedule 100%; support first response &lt;2h and resolution &lt;24h; complaint rate &lt;2% of tickets.</p>
+      <p><strong>Feeds forward to Phase 3.</strong> Labelled real-traffic signals seed the fraud rules — which cannot be written credibly from synthetic data. Demand curves by route, hour, day-of-week and booking lead time bootstrap forecasting. Observed segment travel times retrain the ETA model. Plus an MFS failure taxonomy and per-channel notification cost baselines.</p>
+
+      <h3>Data model delivered</h3>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Domain</th><th>Retention &amp; volume</th></tr></thead>
+        <tbody>
+          <tr><td><strong>AGENTS</strong></td><td>Append-only financial records, 7-year retention; pilot tens/day → full scale ~10⁵/day; monthly partitions on transactions</td></tr>
+          <tr><td><strong>COUNTERS</strong></td><td>7-year retention (cash audit trail); low volume; no partitioning needed before Phase 3</td></tr>
+          <tr><td><strong>FINANCE</strong></td><td>Immutable, never deleted, 10-year retention; monthly partitions on <code>ledger_entries</code> from day one</td></tr>
+          <tr><td><strong>PROMOTION</strong></td><td>Keep indefinitely (fraud-analysis input); modest volume</td></tr>
+          <tr><td><strong>TRACKING</strong></td><td><strong>Fastest-growing table in the platform.</strong> Pilot: ~20 buses × 5s pings ≈ 3×10⁵ rows/day. Full scale: ~10,000 buses ≈ 1.7×10⁸ rows/day, tens of billions/year. Forces: raw pings never live long in PostgreSQL — Redis holds current position, Kafka retains 7 days, ClickHouse daily partitions hold history, downsample to 1/min after 30 days, Parquet-to-S3 cold storage after 90 days</td></tr>
+          <tr><td><strong>NOTIFICATIONS</strong></td><td><strong>Second-fastest.</strong> Pilot ~5×10³ attempts/day; full scale 10⁶–10⁷/day. Monthly partitions with TTL-driven drop, 90 days hot, archive to S3; a per-attempt cost column feeds the budget breaker</td></tr>
+          <tr><td><strong>SUPPORT</strong></td><td>3-year retention with a PII-minimisation policy; low volume; full-text index in OpenSearch, not PostgreSQL</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h3>Money correctness rules</h3>
+      <ul>
+        <li>The double-entry ledger is the <strong>only</strong> financial truth. Every balance shown anywhere is a cached projection, rebuildable from entries.</li>
+        <li>No mutable balance column is ever authoritative — not agent wallets, not counter drawers, not operator payables. Divergence between cache and recomputation is a paged alert.</li>
+        <li>Every seat sold on <strong>every</strong> channel writes balanced entries at confirmation time. A channel that cannot post entries cannot sell.</li>
+        <li>Agent wallet holds release deterministically: capture on ticket issue, release on expiry or failure — idempotent, exactly once in effect, proven under process-kill.</li>
+        <li>A counter shift cannot close until counted cash equals ledger-expected cash; variance requires manager approval and posts an explicit writedown entry.</li>
+        <li>An open reconciliation exception on any transaction in a settlement window <strong>blocks</strong> that settlement from reaching APPROVED. There are no exceptions to the exception rule.</li>
+        <li>Refunds move <strong>through</strong> the ledger (Refund Payable), never around it — no direct gateway refund without a posted journal.</li>
+        <li>Ledger tables are append-only; corrections are reversing entries; UPDATE/DELETE grants revoked at the database level.</li>
+        <li>All amounts in integer poisha (1/100 taka). No floats touch money anywhere.</li>
+      </ul>
+      <p>Worked example — a passenger pays ৳1,200 via bKash for an agent-attributed booking; base fare ৳1,150 + platform service fee ৳50; platform commission from operator 10% of base (৳115); bKash fee 1.5% (৳18); the agent earns ৳60:</p>
+      <pre><code>JOURNAL JE-2026-0815-000123  (booking.confirmed BK-88421)
+  DR  1101 Gateway Clearing : bKash          1,182.00
+  DR  5102 Gateway Fee Expense                  18.00
+      CR  2101 Operator Payable : OP-041              1,035.00   (1,150 - 115)
+      CR  4101 Platform Revenue                         165.00   (115 + 50)
+  -- totals: DR 1,200.00 = CR 1,200.00  OK
+
+JOURNAL JE-2026-0815-000124  (commission accrual, same correlation_id)
+  DR  5101 Commission Expense                   60.00
+      CR  2102 Agent Payable : AGT-207 wallet          60.00
+  -- totals: DR 60.00 = CR 60.00  OK</code></pre>
+
+      <h3>APIs &amp; events delivered</h3>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Group</th><th>Access &amp; authorisation</th></tr></thead>
+        <tbody>
+          <tr><td><code>/api/v1/counter/*</code></td><td>Staff-only. Staff JWT + MFA, RBAC, token scoped by counter_id + operator_id claims; offline replay uses a per-terminal signed sequence</td></tr>
+          <tr><td><code>/api/v1/agent/*</code></td><td>Staff-only (partner class). Agency-scoped claims; recharge and adjustments maker-checker</td></tr>
+          <tr><td><code>/api/v1/operator/*</code></td><td>Staff-only, operator_id-scoped; operator roles via RBAC; finance screens require Accountant or above</td></tr>
+          <tr><td><code>/api/v1/driver/*</code></td><td>Staff-only; device-bound short-lived tokens, trip-scoped manifest access</td></tr>
+          <tr><td><code>/api/v1/tracking/*</code></td><td>Passenger read requires valid ticket linkage; OCC feeds staff-only</td></tr>
+          <tr><td><code>/api/v1/finance/*</code></td><td>Staff-only, Finance Admin; <code>settlement.approve</code> and all adjustments maker-checker; Auditor read-only</td></tr>
+          <tr><td><code>/api/v1/support/*</code></td><td>Staff-only; every action audited with before/after</td></tr>
+          <tr><td><code>/api/v1/admin/*</code></td><td>Staff-only; Super Admin/Admin scoped; config changes audited</td></tr>
+          <tr><td><code>/api/v1/promotions/*</code></td><td>Public validation and redemption; campaign CRUD staff-only</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <p><strong>Kafka topics added:</strong> <code>settlement.created|calculated|approved|paid|reconciled</code> · <code>bus.departed</code> · <code>bus.location.updated</code> · <code>bus.arrived</code> · <code>ticket.boarded</code> · <code>notification.requested|sent|failed</code> · <code>wallet.held|captured|released</code> · <code>counter.shift.closed</code> · <code>promotion.redeemed</code> · <code>incident.reported</code>. All use the standard envelope; consumers idempotent by <code>event_id</code>.</p>
+
+      <h3>Risks &amp; mitigations</h3>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>#</th><th>Risk</th><th>Mitigation</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Counter offline double-selling</td><td>Hard policy: no offline sales outside pre-owned quota seats; idempotent replay; a shift cannot close with a pending queue; drilled in training</td></tr>
+          <tr><td>2</td><td>Agent credit exposure / default</td><td>৳50K pilot cap, KYC + guarantor, atomic credit check, auto-suspend at limit, daily exposure report to finance</td></tr>
+          <tr><td>3</td><td>GPS data volume and cost</td><td>Redis + ClickHouse from day one, never PostgreSQL for history; adaptive ping rate (5s moving, 60s idle); per-device volume alerts</td></tr>
+          <tr><td>4</td><td>Notification cost and delivery failure</td><td>Dual SMS aggregators with failover; per-event routing to the cheapest adequate channel; budget circuit-breaker; delivery-rate SLO per channel</td></tr>
+          <tr><td>5</td><td>App-store review delay</td><td>Accounts W15, TestFlight W21, production submission W24 with a 10-day rejection buffer; <strong>web is the pilot fallback channel — the pilot does not gate on the app</strong></td></tr>
+          <tr><td>6</td><td>Operator onboarding data-entry burden</td><td>ERP bulk CSV import; the onboarding team works <em>with</em> operator staff, not for them; 2-day target measured in W23</td></tr>
+          <tr><td>7</td><td>Cash-handling fraud at counters</td><td>Shift balancing to the ledger, ৳50 variance tolerance, manager-approved writedowns, float limits, surprise counts, all drawer events audited</td></tr>
+          <tr><td>8</td><td>Reconciliation drift accumulating unnoticed</td><td>Daily ritual with a 24h classification SLA; unexplained variance stop-sells the channel; exceptions block settlement — drift cannot silently reach payout</td></tr>
+          <tr><td>9</td><td>Pilot reputational failure (stranded passengers, wrong charges)</td><td>Small blast radius (2–4 routes), paper fallback, kill switch &lt;5 min, war room, owner-level operator relationship, refund-first policy on any platform fault</td></tr>
+          <tr><td>10</td><td>Coordination cost: ~38 people across 21 services</td><td>12 workstreams with single owners; contract tests + schema registry gate merges; a weekly cross-stream integration day; the EM tracks the critical path only — everything else flexes</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <div class="gate">
+        <span class="meta">Phase 2 exit gate — hard proof tests</span>
+        <ol>
+          <li><strong>Multi-channel contention.</strong> One trip, one seat; simultaneous purchase fired from web, app, counter POS and agent portal within a 100 ms window, 500 iterations → exactly 1 ticket per iteration, 0 double-bookings, losers get clean seat-unavailable responses.</li>
+          <li><strong>Counter shift to the taka.</strong> Open a shift with a declared float, sell a scripted mix (cash, MFS, a cancellation, a reprint, 2 offline quota sales), close → counted cash equals ledger-expected cash exactly; the writedown path proven with one injected ৳50 variance.</li>
+          <li><strong>Full settlement cycle.</strong> A seeded week of multi-channel sales plus gateway files and a bank file containing all seven exception classes → settlement walks OPEN → RECONCILED; every exception detected; APPROVED provably blocked until the injected exceptions are resolved.</li>
+          <li><strong>Wallet oversell.</strong> An agent wallet with available + credit for exactly 10 seats; 1,000 concurrent purchase attempts → ≤10 sales, 0 negative equity, wallet recomputation matches cache; repeated with agent-service killed mid-capture.</li>
+          <li><strong>GPS load.</strong> Sustained ingest at 20× the expected pilot event rate for 1 hour → processor lag &lt;5s, Redis current-state fresh, ClickHouse complete, zero data loss on one processor-pod kill.</li>
+          <li><strong>Refund + reschedule ledger landing.</strong> One partial refund and one reschedule with fare difference collected → both produce balanced journals, trial balance zero, no orphaned gateway refund.</li>
+          <li><strong>Intermittent boarding.</strong> Scan 40 passengers with connectivity dropped for 20 → all validated against the cached manifest, queued marks sync correctly, one deliberately double-scanned QR flagged on both devices.</li>
+          <li><strong>14 consecutive days</strong> of live pilot operation with zero unexplained ledger variance. Explained-and-classified exceptions are allowed; unexplained taka is not. A variance resets the clock.</li>
+        </ol>
+        <p style="margin-bottom:0">Pass all functional criteria and all eight proof tests, and Phase 2 closes — Phase 3 opens with real production data in hand.</p>
+      </div>
+    </div>
+
+    <div class="wrap phase-head">
+      <div class="num">Phase 3 of 3</div>
+      <h2 id="phase3">Intelligence, Ecosystem &amp; 10-Million-User Production</h2>
+      <div class="span">Weeks 31–44 · ~40 engineers</div>
+    </div>
+
+    <div class="tw kv">
+      <table>
+        <tbody>
+          <tr><th>Headcount</th><td>10 Go backend, 5 frontend, 3 Flutter, 7 platform/DevOps/SRE, 2 data/ML, 2 AI engineers, 6 QA/performance, 2 security, 2 product/BA, 1 EM</td></tr>
+          <tr><th>Done means</th><td>The platform demonstrably survives 10M concurrent users and a full region loss with zero seat or money inconsistency, the independent pen test is closed, and general availability is declared.</td></tr>
+          <tr><th>Hardest risk</th><td>Sharding the inventory database of a system that has been earning real revenue since ~week 25, without a single double-booked seat or unbalanced ledger entry.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h3>What Phase 3 delivers</h3>
+      <p>Phase 3 turns a revenue-earning pilot into a 10-million-user production platform and wraps the ecosystem around it: fraud defence, a partner API with webhooks, white-label tenancy, four AI capabilities, demand forecasting and operator-controlled dynamic pricing.</p>
+
+      <div class="rule">
+        <span class="meta">Two rules govern this phase</span>
+        <p><strong>Nothing here may fundamentally change the booking architecture.</strong> Phase 3 hardens, scales and extends what Phase 1 proved. If any scaling step forces a rewrite of booking or inventory logic, that is evidence the Phase 1 architecture was wrong — it gets fixed as a Phase 1 defect with a full re-run of the 100K-users-on-one-seat test, not patched at the edge.<br><br><strong>Revenue is already flowing.</strong> Every migration, resize, cutover and deploy is a change to a live financial system. Expand/contract schema changes, dual-write → backfill → verify → cutover, feature flags on every new path, shadow reads before any authoritative switch. No task in this phase gets a maintenance window that stops selling tickets.</p>
+      </div>
+
+      <h3>Entry criteria</h3>
+      <p>All must be true before week 31 starts. Any failure blocks the phase, not just a workstream.</p>
+      <ul>
+        <li><strong>Pilot</strong>: 1–3 operators live on real money for <strong>≥4 consecutive weeks</strong>, all channels selling from the single central inventory.</li>
+        <li><strong>Reconciliation</strong>: platform vs gateway vs bank clean for the last <strong>14 consecutive days</strong>; every discrepancy root-caused and closed.</li>
+        <li><strong>Integrity</strong>: zero unresolved seat inconsistencies and zero unbalanced journal entries; trial balance nets to zero every day.</li>
+        <li><strong>Baseline</strong>: a measured production performance baseline — p95 per endpoint, DB connections, Redis hit rates, Kafka lag, per-service RPS at pilot load — captured and published, so scaling work starts from real numbers rather than guesses.</li>
+        <li>All 21 services independently deployed; risk-service, partner-api-service and ai-service exist as deployable skeletons.</li>
+        <li>The Phase 2 end-to-end suite green in staging on every merge.</li>
+      </ul>
+
+      <h3>Workstreams</h3>
+
+      <div class="ws">
+        <h4><span class="id">P3-A</span> · Risk &amp; Fraud Engine</h4>
+        <p class="facts"><b>Owner</b> 2 Go backend + 1 data/ML + risk product owner · <b>Depends on</b> pilot production data · <b>Weeks</b> 31–41</p>
+        <p>This sits in Phase 3 deliberately: fraud rules tuned against synthetic data are fiction. The pilot has now generated real bookings, real cancellations, real payment failures and real abuse attempts — that data is the training set.</p>
+        <ul>
+          <li>Signal ingestion for every signal specified: IP, device fingerprint, account, phone, email, card/payment token, booking frequency, cancellation pattern, refund pattern, seat-hold pattern (hold-without-pay abuse), geography.</li>
+          <li>Decision engine returning exactly five outcomes — <strong>ALLOW, CHALLENGE</strong> (OTP/step-up), <strong>REVIEW</strong>, <strong>RATE_LIMIT, BLOCK</strong> — evaluated inline on hold, booking, payment and refund paths with a hard latency budget (&lt;30 ms p95, failing open to ALLOW plus async review).</li>
+          <li>Rules first: a declarative rule store, versioned, hot-reloadable, shadow-mode before enforcement. ML scoring later (week 40+), shadow-only in this phase, feeding REVIEW — never autonomous BLOCK.</li>
+        </ul>
+        <p class="done"><b>Done when</b> rules run in shadow ≥2 weeks with a measured false-positive rate &lt;1% before enforcement; all five outcomes exercised in production; a hold-abuse rule demonstrably rate-limits a scripted hold-flood; risk evaluation adds &lt;30 ms p95 to booking; a BLOCK is reversible by a risk admin with a full audit trail.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P3-B</span> · Partner API &amp; Webhooks</h4>
+        <p class="facts"><b>Owner</b> 2 Go backend + 1 product/BA · <b>Depends on</b> booking/inventory APIs, P3-A rate-limit primitives · <b>Weeks</b> 31–38</p>
+        <ul>
+          <li>Every specified endpoint — <code>GET /v1/locations</code>, <code>/v1/search</code>, <code>/v1/trips/{tripId}</code>, <code>/v1/trips/{tripId}/availability</code>, <code>POST /v1/holds</code>, <code>/v1/bookings</code>, <code>/v1/payments</code>, <code>GET /v1/tickets/{id}</code>, <code>POST /v1/cancellations</code> — all delegating to the same central inventory and booking services as every other channel.</li>
+          <li>Auth: OAuth client-credentials <em>and</em> API keys; HMAC request signing with timestamp and nonce (replay window ≤5 min); per-partner IP allow-listing; per-partner rate limits and daily/monthly quotas at the gateway.</li>
+          <li><strong>Sandbox environment</strong>: isolated tenant, fake trips, fake payment provider, deterministic test data. Partners must pass a certification checklist before production keys are issued.</li>
+          <li>Webhooks: the six events, signed with a per-partner HMAC secret, retried with exponential backoff and jitter up to 24h, replayable on demand, dead-lettered after exhaustion with alerting, and a <strong>partner-visible delivery log</strong>.</li>
+        </ul>
+        <p class="done"><b>Done when</b> a partner integrates end to end in sandbox using only public docs, with zero support calls logged as a docs gap; signed webhook delivery verified with forced failures; replayed webhook requests are rejected; quota exhaustion returns 429 with reset headers; at least one real partner certified before GA.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P3-C</span> · White-Label Tenancy</h4>
+        <p class="facts"><b>Owner</b> 1 Go backend + 2 frontend · <b>Depends on</b> operator-service, promotion-service, P3-B · <b>Weeks</b> 33–39</p>
+        <ul>
+          <li>Tenant resolution by domain at the gateway (custom domains plus platform subdomains), tenant context propagated in every request.</li>
+          <li>Per-tenant theming, route visibility, payment gateway config, promotions and legal pages.</li>
+          <li><strong>Hard rule, enforced in code and tests: tenants share centralised inventory.</strong> A white-label site is a skin over the same inventory-service; there is no tenant-local seat state, ever. A contract test asserts a seat held on tenant A's site is HELD when queried through tenant B and the main platform.</li>
+        </ul>
+        <p class="done"><b>Done when</b> two operator-branded domains serve production traffic; the cross-tenant inventory contract test is in CI; tenant misconfiguration degrades only that tenant; tenant onboarding is a config change, not a deploy.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P3-D</span> · AI Customer Service Agent</h4>
+        <p class="facts"><b>Owner</b> 2 AI engineers + 1 Go backend (tool gateway) · <b>Depends on</b> support-service, read APIs · <b>Weeks</b> 33–40</p>
+        <p>Built on Claude via the Anthropic API using the latest Claude models. The agent is <strong>tool-restricted and read-only</strong> — it can call exactly five tools and never touches a database directly. Permissions are enforced <strong>server-side in the tool layer</strong>; the model is never trusted to self-restrict.</p>
+        <pre><code>// ai-service tool gateway — the model never holds credentials, SQL, or write access.
+// Every tool call executes server-side under the END USER's identity and tenant scope.
+var supportTools = ToolRegistry{
+    "findBooking":     {Backend: bookingSvc.Get,   Scope: "own_bookings.read", Redact: ["payment_token","card","otp"]},
+    "getTicket":       {Backend: ticketSvc.Get,    Scope: "own_tickets.read",  Redact: ["qr_signing_key"]},
+    "getBusLocation":  {Backend: trackingSvc.Get,  Scope: "own_trips.read"},
+    "getRefundStatus": {Backend: refundSvc.Status, Scope: "own_refunds.read"},
+    "searchTrips":     {Backend: searchSvc.Query,  Scope: "public.read"},
+}
+// Enforcement order: authn -&gt; ownership/tenant check -&gt; execute -&gt; PII redaction -&gt; audit log -&gt; model.
+// No write-scoped tool is registered. Writes are structurally impossible, not prompt-discouraged.
+// Unknown tool name, scope miss, or cross-user lookup =&gt; hard 403 + risk event, never a "best effort".</code></pre>
+        <ul>
+          <li>Bangla and English conversation; automatic <strong>human escalation</strong> on low confidence, user request, anger detection, or anything requiring a write — refunds and changes always escalate with context.</li>
+          <li>Full auditable transcript of every session: user messages, model responses, every tool call with inputs and outputs, escalation events.</li>
+        </ul>
+        <p class="done"><b>Done when</b> the red-team suite (prompt injection, "ignore your instructions", cross-user PNR probing) shows zero data leakage across 100% of attack cases; every write request escalates to a human; containment rate ≥40% with CSAT at or above baseline human tier-1; an Anthropic API outage degrades to the human queue and never blocks support.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P3-E</span> · AI Voice Booking</h4>
+        <p class="facts"><b>Owner</b> 2 AI engineers (shared with P3-D) + 1 Go backend + telephony · <b>Depends on</b> P3-D tool gateway · <b>Weeks</b> 36–42</p>
+        <ul>
+          <li>Call flow: customer calls → AI answers → searches trips via API → presents options → passenger confirms → seat hold → <strong>payment link sent by SMS</strong> → payment completes → ticket issued and read back.</li>
+          <li>Bangla and English speech, including code-switched Bangla/English and local place-name aliases resolved through the geography engine.</li>
+          <li><strong>Mandatory confirmation read-back before any seat is held</strong>: route, date, time, operator, seat, price, passenger name — an explicit verbal yes required.</li>
+          <li><strong>Payment by link only. The AI never accepts card numbers, PINs, OTPs or wallet credentials over voice</strong> — if a caller starts reading a card number, the agent interrupts and redirects to the link.</li>
+          <li>Hard commit limits enforced in the tool layer, not the prompt: the AI may hold seats (max 4 per call, 10-minute TTL) and send payment links; it may <strong>never</strong> confirm payment, issue refunds, cancel bookings or override price.</li>
+        </ul>
+        <p class="done"><b>Done when</b> an end-to-end voice booking completes in Bangla and in English on production; the read-back gate provably precedes every hold; a tester reading a card number aloud is refused and redirected in 100% of attempts; unpaid voice holds expire and release cleanly.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P3-F</span> · AI Operator Assistant</h4>
+        <p class="facts"><b>Owner</b> 1 AI engineer + 1 data/ML · <b>Depends on</b> ClickHouse analytics APIs, P3-D pattern · <b>Weeks</b> 36–41</p>
+        <ul>
+          <li>Natural-language questions ("Which routes performed best this week?", "Which buses run below 50% occupancy?", "Which trip should we add for Eid?") answered <strong>exclusively through the ClickHouse analytics APIs</strong> — never raw SQL from the model, never the transactional database.</li>
+          <li><strong>Strict tenant scoping enforced server-side</strong>: every analytics call carries the asking operator's tenant ID from their session; the model cannot name another operator and get data. Cross-tenant probes return 403 and raise a risk event.</li>
+          <li>Answers cite the underlying report so operators can verify the numbers.</li>
+        </ul>
+        <p class="done"><b>Done when</b> the cross-tenant red-team suite passes 100%; answers on a benchmark set of 50 operator questions match the corresponding dashboard numbers exactly; heavy questions never touch PostgreSQL (verified by query logs).</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P3-G</span> · Demand Forecasting → Dynamic Pricing</h4>
+        <p class="facts"><b>Owner</b> 2 data/ML + 1 product/BA · <b>Depends on</b> ClickHouse history (needs pilot data) · <b>Weeks</b> 34–43, strictly sequenced</p>
+        <ul>
+          <li><strong>Forecasting first (W34–39)</strong>: models predicting demand, occupancy, cancellations, popular departure times, route demand and bus requirements — surfaced as ERP reports, accuracy tracked against actuals weekly.</li>
+          <li><strong>Pricing second (W40–43), recommendations only</strong>: inputs are historical demand, current occupancy, days to departure, hour, season, route, competitor data if available. The output is a recommended fare, never an applied fare.</li>
+          <li>Operator controls are non-negotiable: <strong>floor fare, ceiling fare, per-route enable/disable</strong>, and an instant kill switch. Price never moves for an operator who has not opted in.</li>
+          <li><strong>Mandatory shadow mode ≥2 weeks</strong> before any recommendation can move a real price: recommendations logged and compared against actual sales, reviewed with pilot operators, only then enabled per-operator.</li>
+          <li>The price-snapshot rule is untouched: a changed fare never affects an existing hold or booking.</li>
+        </ul>
+        <p class="done"><b>Done when</b> forecast MAPE is published and at or below the agreed threshold on the top-10 routes; the shadow-mode log shows ≥2 weeks of recommendations with operator sign-off; floors and ceilings are proven unbreachable; the kill switch reverts to base fares in &lt;1 min; at least one pilot operator is live with dynamic pricing by choice, and none by default.</p>
+      </div>
+
+      <div class="ws critical">
+        <h4><span class="id">P3-H</span> · Data-Layer Scaling &amp; Sharding</h4>
+        <p class="facts"><b>Owner</b> 3 Go backend + 2 platform/SRE (DB-focused) · <b>Depends on</b> the baseline; blocks the high load rungs · <b>Weeks</b> 31–39</p>
+        <p>Every step runs against a live revenue system: expand/contract only, feature-flagged, reversible, verified before authoritative.</p>
+        <ul>
+          <li><span class="tag">W31</span> PgBouncer/connection pooling fleet-wide; per-service connection budgets.</li>
+          <li><span class="tag">W32</span> Read replicas; read-only queries moved behind a flag with staleness guards.</li>
+          <li><span class="tag">W33</span> Online partitioning of the seven critical tables via expand/contract — create partitioned twin → dual-write → backfill → verify counts and checksums → cut over reads → contract. Zero downtime.</li>
+          <li><span class="tag">W34</span> Hot/cold storage and archiving (completed trips &gt;90 days to cold; the ledger is never archived out of queryability); index and query analysis with the top 20 queries tuned.</li>
+        </ul>
+        <p><strong>W35–39 — sharding by <code>trip_id</code>, the one migration that must be perfect:</strong></p>
+        <pre><code>SHARDING MODEL — inventory authority
+  shard_id = consistent_hash(trip_id) mod N      # trip_id is the ONLY routing key
+  Exactly ONE shard owns trip_seats + seat_holds for a given trip — one authoritative
+  inventory owner per trip, so the Phase-1 atomic conditional UPDATE contract is
+  untouched; it just executes on the owning shard.
+  Routing: shard-map service (versioned, cached in every pod, TTL 30s).
+
+ONLINE, REVERSIBLE CUTOVER — exploit that trips are time-bounded:
+  W35  provision shards; dual-write NEW trips (departures &gt;= D) to shard + legacy
+  W36  backfill open trips; row-count + checksum verification jobs run continuously
+  W37  shadow reads: serve from legacy, compare with shard, alert on ANY mismatch
+       (target: 0 mismatches for 7 days)
+  W38  CUTOVER: shard authoritative for new-cohort trips (feature flag, per-cohort);
+       legacy stays authoritative for pre-D trips until they depart — drain &lt;= 14 days
+  W39  contract: legacy inventory path removed, only after drain completes clean
+  ROLLBACK anytime before contract: flip the flag — dual-write kept legacy consistent</code></pre>
+        <p class="done"><b>Done when</b> 7 consecutive days of shadow reads show zero mismatches before cutover; cutover causes zero failed bookings and zero customer-visible errors; the Phase 1 concurrency test re-passes <strong>on the sharded topology</strong>; rollback rehearsed on staging with live traffic replay; the ledger trial balance clean every day of the migration; latencies at or better than baseline afterwards.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P3-I</span> · Infrastructure Scaling</h4>
+        <p class="facts"><b>Owner</b> 4 platform/DevOps/SRE + 1 Go backend · <b>Depends on</b> baseline · <b>Weeks</b> 31–40</p>
+        <ul>
+          <li>Kafka production topology: multi-broker, replication factor 3, rack-aware, consumer groups per service, schema registry with event versioning, DLQs on every consumer, idempotent consumers verified.</li>
+          <li>Redis Cluster sized for 10M — with the standing rule enforced: <strong>never permanent booking storage</strong>; PostgreSQL remains authoritative for holds.</li>
+          <li>OpenSearch cluster with dedicated masters and event-driven indexing; search traffic fully separated from the transactional database.</li>
+          <li>CDN for frontend, static assets, logos, cacheable schedules and location metadata — target ≥85% edge offload, so millions of requests never reach app servers.</li>
+          <li>API gateway hardening across the CDN → WAF → LB → Gateway → Services chain.</li>
+          <li>Autoscaling on <strong>all seven signals</strong>: CPU, memory, request rate, latency, Kafka lag, queue depth, DB connections — per-service policies, because search may need 500 pods while finance needs 20.</li>
+          <li>Circuit breakers isolating non-critical dependencies from the booking path: SMS down → booking continues; analytics down → booking continues; recommendations down → search continues; ai-service down → everything continues.</li>
+        </ul>
+        <p class="done"><b>Done when</b> killing the SMS provider under production-like load drops zero bookings; each of the 21 services scales independently on its own signals without neighbours moving; Kafka broker loss is absorbed with zero message loss; cache-hit ratios meet targets (search ≥90%, seat-map ≥80%); the gateway rejects unauthenticated and over-quota traffic at the edge under load.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P3-J</span> · Multi-Region &amp; Disaster Recovery</h4>
+        <p class="facts"><b>Owner</b> 3 platform/SRE + 1 security · <b>Depends on</b> P3-H partitioning, P3-I · <b>Weeks</b> 34–41</p>
+        <pre><code>Global DNS (health + latency routing)
+  -&gt; CDN + WAF (global edge)
+  -&gt; Global router
+      |- REGION A (primary) : full K8s (21 services), Redis Cluster, Kafka,
+      |                       PG primaries (all shards), OpenSearch, ClickHouse
+      |                       — all writes land here (single writer per shard)
+      |- REGION B (secondary): full K8s (21 services, live, serving reads),
+                               Redis Cluster (own), Kafka mirrored,
+                               PG streaming replicas per shard (async, lag alert &gt; 5s),
+                               OpenSearch replica cluster
+Failover = promote Region B replicas per shard + flip global routing;
+           scripted, rehearsed, &lt;= RTO.</code></pre>
+        <ul>
+          <li>RPO/RTO per data class, bookings/payments/finance strongest: <strong>bookings, payments and ledger RPO ≤30s, RTO ≤15 min</strong>; tickets and inventory same class; search and analytics RPO ≤15 min, RTO ≤2h; GPS best-effort (rebuilds from the stream).</li>
+          <li>Backups: full nightly, incremental hourly, WAL-based PITR, <strong>off-region copies</strong> for databases, ledger, operator configs, tickets, documents and application config. Restores tested monthly, not assumed.</li>
+          <li><strong>Region-loss game day (W40): Region A is actually taken away.</strong> Failover executed by the on-call SRE from the runbook alone, measured against RPO/RTO, with a live booking made in Region B during the event.</li>
+        </ul>
+        <p class="done"><b>Done when</b> the game day meets published RPO/RTO with zero lost confirmed payments and zero seat inconsistency; a full PITR restore to an arbitrary timestamp succeeds and reconciles; replica lag alerting proven; failback rehearsed; the runbook is executable by any on-call SRE — verified by having a different SRE run the rehearsal.</p>
+      </div>
+
+      <div class="ws">
+        <h4><span class="id">P3-K</span> · Security Hardening &amp; Financial Maker-Checker</h4>
+        <p class="facts"><b>Owner</b> 2 security + 1 Go backend + finance BA · <b>Depends on</b> audit system, finance flows · <b>Weeks</b> 31–43</p>
+        <ul>
+          <li>The full security list implemented and evidenced: TLS everywhere, encryption at rest, field-level PII encryption, staff MFA, secrets vault, refresh-token rotation, RBAC review, WAF, DDoS protection, SQLi/XSS/CSRF controls, secure headers, signed webhooks, rate limits, audit logs.</li>
+          <li><strong>Maker-checker</strong> on all six operations: manual refund, settlement approval, commission adjustment, ledger adjustment, gateway change, bank-account change. A requester can never approve their own request; execution is automatic post-approval and fully audited.</li>
+          <li>Immutable audit — append-only, tamper-evident (hash-chained), retained ≥7 years for financial records.</li>
+          <li><strong>Independent third-party penetration test (W41–42)</strong> scoped to public web and app, partner API, admin/ERP, AI endpoints and infrastructure. All criticals and highs remediated and <strong>retested</strong> before GA.</li>
+        </ul>
+        <p class="done"><b>Done when</b> every checklist item has evidence linked; a self-approval attempt on each of the six operations is rejected and audited; bank-account change enforces cooling-off plus out-of-band verification; the pen-test report shows zero open critical or high findings at retest; the audit store tamper check passes.</p>
+      </div>
+
+      <div class="ws critical">
+        <h4><span class="id">P3-L</span> · Test, Load, Chaos &amp; Launch</h4>
+        <p class="facts"><b>Owner</b> 6 QA/performance + SRE support + EM · <b>Depends on</b> everything · <b>Weeks</b> 31–44</p>
+        <ul>
+          <li>Full automated testing matrix <strong>per service</strong> (all 21): unit, integration, contract, API, security, performance and failure-injection, with coverage gates in CI.</li>
+          <li>The core end-to-end suite as one automated sequence: search → select seats → hold → payment → webhook → booking confirm → ticket → QR scan → boarding → trip complete → operator settlement. Run nightly against staging and, for read-safe portions, against production synthetics.</li>
+          <li>The progressive load ladder. No rung skipped, and no 10M claim without the 10M test.</li>
+          <li>Chaos programme: component kills weekly in staging, plus two production-adjacent game days (W37 single-component, W41 AZ-loss under load) and the W40 region-loss day.</li>
+          <li>GA execution: go/no-go review (W44), launch comms, hypercare rota for two weeks post-GA.</li>
+        </ul>
+        <p class="done"><b>Done when</b> every service meets its coverage gate; the E2E suite is green 14 consecutive nights; all eight ladder rungs pass at p95 targets; Phase 2 critical tests re-pass at scale; the chaos matrix is fully executed with zero invariant violations.</p>
+      </div>
+
+      <h3>Sequencing — week by week</h3>
+      <p>Critical path: <strong>baseline → pooling/replicas/partitioning → shard dual-write/verify → shard cutover (W38) → drain/contract → 1M–10M rungs → region-loss day → pen test and remediation → 10M soak → GA.</strong> The sharding cutover, the pen test and GA are deliberately in different weeks — a live-revenue shard cutover never shares a week with either.</p>
+    </div>
+
+    <div class="tw weeks">
+      <table>
+        <thead><tr><th>Wk</th><th>Active</th><th>Milestone landing</th></tr></thead>
+        <tbody>
+          <tr><td>31</td><td>H I K L A B</td><td>Production baseline re-measured and published; connection pooling live; partner API spec frozen; security evidence audit begins</td></tr>
+          <tr><td>32</td><td>H I K L A B</td><td>Read replicas serving flagged read traffic; risk rules v1 in shadow; partner sandbox live; ladder rungs <strong>10K + 50K</strong> pass</td></tr>
+          <tr><td>33</td><td>H I J K L B C D</td><td>Online partitioning of all 7 critical tables complete (zero downtime); Kafka production topology live; <strong>100K</strong> rung</td></tr>
+          <tr><td>34</td><td>H I J K L B C D G</td><td>Hot/cold archiving live; Redis Cluster resized; maker-checker live on all six operations; forecasting build starts; webhooks in sandbox</td></tr>
+          <tr><td>35</td><td>H I J K L A C D G</td><td>Shards provisioned; <strong>dual-write begins</strong> (new-cohort trips); risk rules enforcing ALLOW/RATE_LIMIT; AI support internal beta</td></tr>
+          <tr><td>36</td><td>H I J K L E F G</td><td>Shard backfill + continuous verification; Region B build-out complete (serving nothing yet); <strong>500K</strong> rung; voice booking build starts</td></tr>
+          <tr><td>37</td><td>H I J K L E F C</td><td>Shadow reads: days 1–7 of the required zero-mismatch window; <strong>chaos game day 1</strong>; first white-label tenant live</td></tr>
+          <tr><td>38</td><td><strong>H</strong> I J L E F</td><td><strong>SHARDING CUTOVER</strong> — shards authoritative for new trips; freeze on all other risky changes this week; per-service scaling profiles applied</td></tr>
+          <tr><td>39</td><td>H I J L D E F G</td><td>Legacy inventory drained and contracted; Phase 1 concurrency test re-passed on shards; Region B serving reads; <strong>1M</strong> rung</td></tr>
+          <tr><td>40</td><td>J I L A G</td><td><strong>Region-loss game day</strong> — Region A withdrawn, RPO/RTO measured; <strong>2M</strong> rung; forecasting live in ERP; <strong>pricing shadow mode starts</strong></td></tr>
+          <tr><td>41</td><td>K L A F G</td><td><strong>Pen test begins</strong>; <strong>5M</strong> rung; <strong>chaos game day 2</strong> (AZ loss under load); risk ML scoring in shadow</td></tr>
+          <tr><td>42</td><td>K L B G</td><td>Pen test fieldwork ends; <strong>10M</strong> rung first pass; partner certification complete for launch partners</td></tr>
+          <tr><td>43</td><td>K L G</td><td>All critical and high pen findings fixed and <strong>retested</strong>; <strong>10M sustained soak</strong> (2h+); pricing enabled for opted-in operators; GA readiness review</td></tr>
+          <tr><td>44</td><td>L, all</td><td><strong>Go/no-go → GENERAL AVAILABILITY</strong>; hypercare rotation begins</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h3>The load ladder</h3>
+      <p>Costs are per rung-campaign — load-generator fleet plus scaled target-environment hours, engineer time excluded — in USD, order-of-magnitude honest. The database and the seat-hold hot path break first. Plan for it rather than being surprised by it.</p>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Concurrent</th><th>What breaks first</th><th>Test cost</th><th>Fix pattern</th></tr></thead>
+        <tbody>
+          <tr><td>10K</td><td>Nothing should — this validates the pilot baseline and the harness itself</td><td>$1–2K</td><td>Fix the test harness, not the system</td></tr>
+          <tr><td>50K</td><td>Connection pool exhaustion; N+1 queries surface</td><td>$2–4K</td><td>PgBouncer budgets per service; query fixes from the W34 analysis</td></tr>
+          <tr><td>100K</td><td>Search hitting PostgreSQL on cache-miss storms; OTP/SMS queue backlog</td><td>$4–8K</td><td>OpenSearch + Redis cache warming; async OTP with rate limits</td></tr>
+          <tr><td>500K</td><td><strong>Seat-hold hot path</strong>: row contention on popular trips; Redis single-slot pressure on hot trip keys</td><td>$10–20K</td><td>Partitioned <code>trip_seats</code>, key sharding in Redis, hold-queue smoothing at the gateway</td></tr>
+          <tr><td>1M</td><td>Primary DB write ceiling on holds and bookings; Kafka consumer lag on booking events</td><td>$20–40K</td><td><strong>This is what sharding by <code>trip_id</code> exists for</strong> — the W38 cutover precedes this rung; consumer group scale-out</td></tr>
+          <tr><td>2M</td><td>API gateway and ingress CPU; webhook processing backlog; observability pipeline drops data</td><td>$30–60K</td><td>Gateway horizontal scale + edge auth; webhook worker autoscale on queue depth; sample traces, never metrics</td></tr>
+          <tr><td>5M</td><td>Cross-region bandwidth; Redis Cluster resharding pressure; shard-map read storms</td><td>$50–90K</td><td>Pre-provisioned peak capacity; shard-map caching in-pod</td></tr>
+          <tr><td>10M</td><td>Everything at margin: CDN offload must hold ≥85%, autoscaling must pre-warm, cost per hour is real money</td><td>$80–150K</td><td>No new fixes allowed at this rung — if something structural breaks here, a lower rung lied. Fix it and re-climb</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap"><h4>Individual scenario targets</h4></div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Scenario</th><th>Target</th></tr></thead>
+        <tbody>
+          <tr><td>Search flood (Dhaka → Chattogram)</td><td>150K searches/sec sustained 30 min; p95 &lt;200 ms; ≥90% served from OpenSearch/Redis; PostgreSQL search QPS ~0</td></tr>
+          <tr><td>Seat flash sale</td><td>500K users contest one trip's 40 seats in 60s: exactly 40 BOOKED, 0 double-holds, 0 duplicate tickets; p95 hold &lt;250 ms for winners; losers get a clean rejection &lt;500 ms</td></tr>
+          <tr><td>Payment callback storm</td><td>50K webhooks/sec including each replayed ×100: exactly 1 payment, 1 confirmation, 1 ticket per booking; idempotency holds at 100%</td></tr>
+          <tr><td>Login/OTP spike</td><td>100K OTP requests/min: auth p95 &lt;300 ms; per-number and per-IP rate limits cap SMS spend; no OTP reuse</td></tr>
+          <tr><td>GPS volume</td><td>50K location events/sec: Kafka lag &lt;5s; live map current within 10s; zero impact on booking p95</td></tr>
+          <tr><td>Cancellation burst</td><td>500 trips cancelled simultaneously (~20K refunds): all enqueued &lt;1 min, processed &lt;30 min, ledger balanced continuously, notification fan-out complete &lt;10 min</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h3>Running 10M capacity — cost &amp; controls</h3>
+      <p>The owner has chosen to build and run full 10M-ready, multi-region capacity live from Phase 3, regardless of current traffic. That is a deliberate, expensive purchase of <strong>capacity insurance ahead of demand</strong> — say it plainly in every budget review so nobody later calls it waste discovered.</p>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Layer</th><th>Monthly (USD)</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Compute (K8s, 21 services × 2 regions, peak-sized)</td><td>$80K–150K</td><td>Largest line; search, booking and inventory dominate</td></tr>
+          <tr><td>PostgreSQL primaries + shards + replicas (×2 regions)</td><td>$30K–60K</td><td>Sharded inventory plus replicas is the second-largest line</td></tr>
+          <tr><td>Redis Clusters (both regions)</td><td>$10K–25K</td><td>Memory-priced; hot-trip and session data</td></tr>
+          <tr><td>Kafka (RF3, mirrored)</td><td>$10K–20K</td><td>Cross-region mirroring bandwidth included</td></tr>
+          <tr><td>OpenSearch clusters</td><td>$10K–25K</td><td>Search index plus log retention</td></tr>
+          <tr><td>ClickHouse</td><td>$5K–15K</td><td>Cheap per query; watch the retention policy</td></tr>
+          <tr><td>CDN + egress</td><td>$10K–40K</td><td>Traffic-linked; low now, grows with real users</td></tr>
+          <tr><td>Observability (metrics, traces, logs)</td><td>$10K–30K</td><td>The classic surprise line</td></tr>
+          <tr><td><strong>Total</strong></td><td><strong>~$165K–365K/mo<br>(~$2M–4.5M/yr)</strong></td><td>Plus load-test campaigns, ~$200–350K one-time in this phase</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <p><strong>FinOps controls, mandatory from W31:</strong></p>
+      <ul>
+        <li><strong>Reserved/committed capacity</strong> for the steady-state floor — 1–3 year commitments on compute and databases, 30–50% off the on-demand numbers above. Buy it in W31, not after the first shocking invoice.</li>
+        <li><strong>Per-service right-sizing</strong> monthly. The 21-service model only pays off if finance-service actually runs 20 pods while search runs 500, rather than everyone at max.</li>
+        <li><strong>Per-service cost attribution</strong> via labels and namespaces — every service has a monthly cost line and an owning team.</li>
+        <li><strong>Cost dashboards</strong> next to the performance dashboards, so engineers see the price of what they run.</li>
+        <li><strong>Monthly burn review</strong> (EM + platform lead + owner): actuals versus plan, top movers, right-sizing actions with owners and dates.</li>
+      </ul>
+      <p>Lines most likely to surprise: <strong>observability ingestion</strong> — traces and logs during 10M-scale test weeks can exceed the compute bill for those days, so sample aggressively — plus cross-region replication bandwidth, NAT/egress charges, SMS/OTP spend during load tests (always stub the SMS provider), and Anthropic API usage for the AI services (meter per-feature, set budgets and alerts).</p>
+
+      <h3>Chaos matrix</h3>
+      <p>Executed weekly in staging and during the W37/W40/W41 game days. The invariant on <strong>every</strong> row: no money and no seat ever becomes inconsistent. Every run ends with an automated ledger trial-balance check and a seat-state consistency sweep.</p>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Component failed</th><th>Expected degradation</th><th>Must NEVER happen</th><th>Verified by</th></tr></thead>
+        <tbody>
+          <tr><td>Redis node</td><td>Brief cache-miss latency bump; holds unaffected (PostgreSQL authoritative)</td><td>A hold silently lost or falsely expired; a seat sold from stale cache</td><td>Kill the node under booking load; seat-state sweep + hold-expiry audit</td></tr>
+          <tr><td>Kafka broker</td><td>Consumer lag rises, drains after failover; RF3 absorbs</td><td>Event loss; duplicate side effects from redelivery</td><td>Broker kill during a booking storm; event-count reconciliation</td></tr>
+          <tr><td>Booking pod</td><td>In-flight requests retried by the gateway; capacity dip</td><td>A half-created booking without compensation; a duplicate booking from retry</td><td>Pod kill mid-transaction ×100; booking-state invariant check</td></tr>
+          <tr><td>Inventory pod</td><td>Hold latency blip on owned trips until reschedule</td><td>Two holds on one seat; a seat stuck HELD forever</td><td>Pod kill during the flash-sale test; the 1-seat/100K test during kills</td></tr>
+          <tr><td>PostgreSQL replica</td><td>Reads fail over to other replicas or the primary; staleness alert</td><td>Writes affected at all; a stale read confirming a booking</td><td>Replica kill under read load; write-path latency unchanged</td></tr>
+          <tr><td>OpenSearch node</td><td>Search degrades; the circuit breaker may serve cached results</td><td>The booking path affected; the site down because search is down</td><td>Node kill; booking conversion unchanged during the event</td></tr>
+          <tr><td>Payment provider down</td><td>Payments via that provider fail cleanly; others keep working; holds expire normally</td><td>A ticket issued without verified payment; a leaked hold; a double charge on recovery</td><td>Provider stub blackhole + delayed webhook replay; ledger vs gateway reconciliation</td></tr>
+          <tr><td>SMS gateway</td><td>Notifications queue and retry; OTP falls back where allowed</td><td>Booking blocked because SMS is down</td><td>Gateway kill during checkout load; booking success rate unchanged</td></tr>
+          <tr><td>Entire availability zone</td><td>Cross-AZ capacity absorbs; brief latency rise; autoscaler backfills</td><td>Any lost confirmed payment; an RPO/RTO breach; split-brain inventory</td><td>W41 game day under load; RPO/RTO stopwatch + full consistency sweep</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <h3>Security &amp; compliance gate</h3>
+      <p>Nothing ships to GA without every item evidenced — a link to config, scan output or a passing test. "We believe so" is a fail.</p>
+      <ul class="check">
+        <li>TLS everywhere; encryption at rest on all datastores; field-level PII encryption (phone, email, NID, payment tokens)</li>
+        <li>MFA enforced for all staff roles; suspicious-login handling live; refresh-token rotation; session and device management</li>
+        <li>Secrets in the vault only — a repo and CI scan proves zero embedded secrets</li>
+        <li>RBAC audit: every permission <code>resource.action</code>, no hardcoded roles, one quarterly access review executed before GA</li>
+        <li>WAF and DDoS protection in blocking mode; SQLi/XSS/CSRF controls verified by scanner and by pen test; secure headers on all responses</li>
+        <li>All webhooks signed; rate limits on every public endpoint; partner IP allow-lists active</li>
+        <li>Immutable audit with tamper-evidence check passing</li>
+        <li>AI red-team suite (injection, cross-user, cross-tenant, write-coercion) green for all three AI capabilities</li>
+      </ul>
+      <h4>Maker-checker matrix</h4>
+      <p class="meta">REQUEST → APPROVER → EXECUTION · requester ≠ approver enforced in code · all steps audited</p>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Operation</th><th>Requester (maker)</th><th>Approver (checker)</th><th>Extra control</th></tr></thead>
+        <tbody>
+          <tr><td>Manual refund</td><td>Support / Finance Admin</td><td>Finance Admin (distinct user)</td><td>Amount-tiered: large refunds need a second approver</td></tr>
+          <tr><td>Settlement approval</td><td>Finance Admin</td><td>Senior Finance / Super Admin</td><td>Statement attached; hash of settlement items</td></tr>
+          <tr><td>Commission adjustment</td><td>Finance Admin</td><td>Super Admin</td><td>Reason code mandatory</td></tr>
+          <tr><td>Ledger adjustment</td><td>Finance Admin</td><td>Auditor + Super Admin</td><td>Always paired balanced entries; never edits history</td></tr>
+          <tr><td>Gateway change</td><td>Operations Admin</td><td>Super Admin</td><td>Staging verification proof required</td></tr>
+          <tr><td>Bank-account change</td><td>Operator Owner / Finance Admin</td><td>Super Admin</td><td>24h cooling-off + out-of-band verification call</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <p><strong>PII and retention.</strong> PII minimised and field-encrypted; support and AI views redacted by default; passenger PII retained per policy then anonymised; <strong>financial ledger and audit logs retained ≥7 years and never deleted</strong>; GPS trails aggregated after 90 days; AI transcripts retained 1 year with PII redaction; data-subject deletion honours legal holds on financial records.</p>
+
+      <h3>Risks &amp; mitigations</h3>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>#</th><th>Risk</th><th>Mitigation</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Sharding the inventory of a live revenue system corrupts seat state or loses a booking</td><td>Trip-cohort cutover (new trips only, legacy drains naturally); 7-day zero-mismatch shadow-read gate; rehearsed rollback; W38 change freeze on everything else; Phase 1 concurrency test re-run post-cutover before the 1M rung</td></tr>
+          <tr><td>2</td><td>Multi-region 10M capacity cost balloons uncontrolled</td><td>The spend is accepted as capacity insurance — control it, don't gate it: reserved capacity bought W31, monthly burn review, per-service attribution, right-sizing cadence; alert at 110% of plan</td></tr>
+          <tr><td>3</td><td>AI hallucination in customer-facing support</td><td>Read-only tool gateway — the model can only relay tool results; answers must cite tool output; write requests always escalate to humans; red-team gate; kill switch to a human-only queue</td></tr>
+          <tr><td>4</td><td>Dynamic pricing damages operator trust or draws price-gouging complaints</td><td>Recommendations only; operator opt-in with floor/ceiling and kill switch; ≥2-week shadow mode with operator review; ceilings prevent surge-gouging headlines — Eid pricing is reputational dynamite in this market</td></tr>
+          <tr><td>5</td><td>Load-test campaigns burn $200K+ and the budget is questioned mid-phase</td><td>Costs pre-approved per rung in W31; test windows off-peak; environments torn down between rungs; SMS and payment providers stubbed so tests never buy real SMS</td></tr>
+          <tr><td>6</td><td>Partner API abused (inventory scraping, hold-flooding to starve seats)</td><td>Quotas and rate limits at the gateway; hold-abuse rules in P3-A (hold-to-book ratio per partner); signed requests plus IP allow-lists; sandbox certification before production keys; per-partner kill switch</td></tr>
+          <tr><td>7</td><td>Scaling work destabilises the live pilot — the change causes the outage</td><td>Every change flagged and reversible; error-budget policy (burn the budget and scaling work pauses); freeze weeks around cutovers; canary deploys for all 21 services</td></tr>
+          <tr><td>8</td><td>21 services × 2 regions is too much surface for 7 SRE</td><td>Golden-path platform tooling (one deploy, alert and dashboard pattern for all services); service ownership pushed to the 10 backend engineers; a strict alert-noise budget; hypercare rota shared with backend</td></tr>
+          <tr><td>9</td><td>Anthropic API dependency: latency, outage or cost in the booking-adjacent path</td><td>AI is never in the booking critical path (circuit-breakered); voice and support degrade to human queues; per-feature token budgets and alerts; prompt caching for the fixed tool and system prompts</td></tr>
+          <tr><td>10</td><td>The pen test lands large findings at W42 with no runway</td><td>Security self-audit and automated scanning from W31 so the pen test confirms rather than discovers; W43 reserved purely for remediation and retest; <strong>GA slips before the gate bends</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="wrap">
+      <div class="gate">
+        <span class="meta">Phase 3 exit gate — GA go/no-go</span>
+        <p>All must be green in the W44 review. Any red is a no-go, and GA waits.</p>
+        <ol>
+          <li>The 10M-concurrent rung and sustained soak passed at p95 targets; Phase 2 critical tests (1-seat/100K, 100× webhook) re-passed at scale on the sharded topology.</li>
+          <li>Zero seat inconsistencies and zero unbalanced ledger entries across all Phase 3 load, chaos and game-day events, and across the entire pilot to date.</li>
+          <li>The region-loss game day met RPO ≤30s / RTO ≤15 min for bookings, payments and finance.</li>
+          <li>Pen test: zero open critical or high findings, with retest evidence attached.</li>
+          <li>Reconciliation clean for the trailing 14 days on live revenue; settlements paying out on cycle.</li>
+          <li>Error budget healthy (no unresolved SEV1/SEV2); a change-freeze plan for launch week agreed.</li>
+          <li>FinOps: reserved capacity purchased, burn within 110% of plan, cost dashboards live.</li>
+          <li>Owner sign-off recorded, with explicit acknowledgement that 10M capacity is running as purchased insurance ahead of demand.</li>
+        </ol>
+        <p><strong>Operational readiness</strong> — separately verified:</p>
+        <ul class="check">
+          <li>Runbooks for every service and every chaos scenario, proven usable by someone other than their author</li>
+          <li>24/7 on-call rotation staffed and paged through at least two real weeks; escalation chain published</li>
+          <li>Alert thresholds tuned (a page means actionable); all specified observability metrics dashboarded</li>
+          <li>Incident severity definitions (SEV1–SEV4) with response SLAs; one full incident-response drill completed</li>
+          <li>Public status page live; customer-comms templates in Bangla and English</li>
+          <li>DR rehearsed with published, met RPO/RTO; backup restores tested within the last 30 days</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <hr>
+      <h2 id="thirteen">The first thirteen steps</h2>
+      <p>The owner specified an exact starting order, and it is correct — the first milestone is deliberately not the homepage. Restated here as the literal week-1 build order.</p>
+      <ol>
+        <li>Repository and environment architecture</li>
+        <li>PostgreSQL base schemas and migration system</li>
+        <li>Authentication and RBAC</li>
+        <li>Operators</li>
+        <li>Locations</li>
+        <li>Fleet</li>
+        <li>Seat-layout builder and data model</li>
+        <li>Routes and segments</li>
+        <li>Schedules</li>
+        <li>Trip-generation engine</li>
+        <li>Inventory model</li>
+        <li>Atomic seat-hold prototype</li>
+        <li><strong>Concurrency test proving the seat-hold prototype cannot double-book</strong></li>
+      </ol>
+      <div class="rule">
+        <span class="meta">Step 13 is a gate, not a task</span>
+        <p>Until it passes, no work proceeds on the wider booking flow. If the inventory architecture can double-book at 100,000 concurrent buyers, every channel built on top of it inherits that defect — and by Phase 2 there are seven channels and real money on it.</p>
+      </div>
+      <p>The plan front-loads steps 11–13 as far as the dependency chain allows, so the architecture is falsified early and cheaply if it is going to be falsified at all.</p>
+
+      <h2 id="verification">Verification</h2>
+      <p>How each phase is proven, beyond "the UI works". Each of these is an automated suite, not a manual check.</p>
+
+      <h3>Phase 1 — correctness under concurrency</h3>
+      <ul>
+        <li>100,000 concurrent buyers for Seat A1 → exactly 1 reservation, 99,999 clean rejections, 0 duplicate tickets</li>
+        <li>Same payment webhook delivered 100 times → 1 payment, 1 confirmation, 1 ticket</li>
+        <li>Segment inventory: a seat sold Dhaka→Cumilla remains sellable Cumilla→Chattogram, and can never be sold twice on overlapping segments</li>
+        <li>Hold expiry race: a hold expiring at the moment of payment resolves to exactly one outcome</li>
+        <li>Reschedule failure: compensation leaves neither an orphaned hold nor a double allocation</li>
+        <li>Service death: killing payment-service mid-flow leaves no orphaned holds and no unpaid tickets</li>
+        <li>All p95 latency targets met</li>
+      </ul>
+
+      <h3>Phase 2 — money and channels</h3>
+      <ul>
+        <li>The same trip sold simultaneously from web, app, counter and agent → no double-booking</li>
+        <li>A counter shift opens, sells cash tickets, closes and balances to the ledger to the taka</li>
+        <li>A settlement cycle runs <code>OPEN → RECONCILED</code> against seeded gateway and bank files with injected exceptions</li>
+        <li>An agent wallet cannot oversell past its credit limit under concurrency</li>
+        <li>GPS ingestion sustains the pilot event rate with headroom</li>
+        <li>A refund and a reschedule both land correctly in the double-entry ledger</li>
+        <li>A boarding scan works across intermittent connectivity</li>
+        <li><strong>14 consecutive days of live pilot operation with zero unexplained ledger variance</strong></li>
+      </ul>
+
+      <h3>Phase 3 — scale, failure and security</h3>
+      <ul>
+        <li>The progressive load ladder: 10K → 50K → 100K → 500K → 1M → 2M → 5M → 10M concurrent</li>
+        <li>Each individual scenario: search flood, seat flash sale, payment callback storm, login/OTP spike, GPS volume, cancellation burst</li>
+        <li>Chaos across every component — each failed deliberately, with the invariant that <strong>no money and no seat becomes inconsistent</strong></li>
+        <li>A region-loss game day against published RPO/RTO</li>
+        <li>Independent penetration test with all high and critical findings closed</li>
+        <li>The full end-to-end suite: search → seats → hold → payment → webhook → confirm → ticket → QR scan → boarding → trip complete → operator settlement, as one automated run</li>
+      </ul>
+
+      <h2 id="done">Definition of done</h2>
+      <p>The project is complete when every one of these works in production — not when the UI works.</p>
+      <ul class="check two">
+        <li>Passenger web</li><li>Passenger apps</li><li>Operator ERP</li><li>Counter POS</li><li>Agent portal</li><li>Driver app</li>
+        <li>Search</li><li>Segment inventory</li><li>Seat locking</li><li>Booking</li><li>Payment</li><li>Ticket</li><li>QR boarding</li>
+        <li>Cancellation</li><li>Rescheduling</li><li>Refunds</li>
+        <li>Finance ledger</li><li>Agent commission</li><li>Operator settlement</li><li>Reconciliation</li>
+        <li>GPS tracking</li><li>ETA</li><li>Operations monitoring</li>
+        <li>SMS</li><li>Email</li><li>Push</li>
+        <li>Admin</li><li>Support</li><li>Promotions</li><li>Referral</li>
+        <li>Reporting</li><li>Analytics</li><li>Fraud system</li>
+        <li>Partner API</li><li>Partner webhooks</li><li>White label</li>
+        <li>AI support</li><li>AI voice booking</li><li>AI analytics assistant</li>
+        <li>Security</li><li>Audit</li><li>Backup</li><li>DR</li><li>CI/CD</li><li>Monitoring</li><li>Alerts</li>
+        <li>Performance testing</li><li>Concurrency testing</li><li>Failure testing</li><li>Security testing</li>
+      </ul>
+
+      <h2 id="nongoals">What this plan deliberately does not do</h2>
+      <p>Stated so these are conscious choices rather than gaps discovered later.</p>
+      <ul>
+        <li><strong>No customer-facing product at the end of Phase 1.</strong> Only a thin reference web client that exercises the booking flow. Building the storefront before the inventory core is proven would mean rebuilding it.</li>
+        <li><strong>No fraud rules, forecasting or dynamic pricing before the pilot.</strong> All three need real production data. Written earlier, they would be guesses that later have to be thrown away.</li>
+        <li><strong>No offline seat <em>selling</em> at counters.</strong> Counters get cached trips, cached manifests and offline QR validation. Selling inventory without authoritative access is the one reliable way to double-book, and it contradicts the central rule.</li>
+        <li><strong>No separate seat logic anywhere.</strong> Not for the app, not for counters, not for agents, not for partners, not for the AI. Every channel calls inventory-service.</li>
+        <li><strong>No booking-architecture changes in Phase 3.</strong> If scaling work forces one, that is a Phase 1 defect to be fixed at the root, not patched at the edge.</li>
+      </ul>
+
+      <footer>
+        <p>Compressed from an 83-section, 5-phase master specification into 3 phases with nothing dropped. The source specification is preserved verbatim at <code>docs/reference/source-master-plan.md</code> so this compression can always be audited against the original.</p>
+      </footer>
+    </div>
+
+  </main>
+</div>
