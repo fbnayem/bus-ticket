@@ -76,7 +76,7 @@ default path here as it is on the website.
 
 ```bash
 flutter analyze                     # in each of the three packages
-flutter test                        # 36 tests; the live ones are skipped
+flutter test                        # 53 tests; the live ones are skipped
 flutter test --tags live --run-skipped   # 8 more, against a running platform
 flutter build apk --release
 ```
@@ -93,6 +93,30 @@ They earn their keep: they caught the client returning an empty map for an empty
 `400`, because it shortcut on an empty body before it looked at the status. Every
 caller read that as a successful, empty answer — a search with no buses, a
 booking with no tickets.
+
+### And then run them
+
+Analyzing, testing and building an APK proves a great deal and misses a
+particular kind of fault entirely: the app agreeing with itself about something
+the platform never said. Both apps have been installed on a device, signed into,
+and driven — search to ticket, roster to boarding scan — against the running
+platform. Four faults came out of that and out of nothing else:
+
+- The seat map walked rows from 1 and the platform numbers them from 0, so the
+  **front row of every bus** was drawn nowhere and could not be bought.
+- A seat was found by row and column alone, so a sleeper's **entire upper deck**,
+  half the coach, was invisible.
+- The roster read `role` where the platform sends `crew_role`, so the pill on
+  every card was **empty** and nobody was told whether they were driving.
+- A 401 was treated as one event when it is two, so `mfa_required` — which the
+  platform sends as a 401 — never reached the screen that raises the six-digit
+  field, and **an account with MFA turned on could not sign in at all**.
+
+Each is now covered by a test that fails without the fix. The lesson worth
+keeping is the third one: the crew fixture said `role` because the app said
+`role`, so the test and the code agreed with each other and both disagreed with
+the server. **Fixtures get their field names from a real response, not from the
+code being tested.**
 
 ## What these builds are not
 

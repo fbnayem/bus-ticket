@@ -5,6 +5,8 @@
 // money anywhere, and a rounding error in a currency is not a display bug, it
 // is a missing taka in somebody's drawer at closing time.
 
+import 'i18n.dart';
+
 int _int(Object? v) => v is num ? v.toInt() : int.tryParse('${v ?? ''}') ?? 0;
 String _str(Object? v) => v == null ? '' : '$v';
 bool _bool(Object? v) => v == true;
@@ -294,9 +296,15 @@ class CrewTrip {
         route = _str(j['route']),
         registration = _str(j['registration']),
         status = _str(j['status']),
-        role = _str(j['role']),
-        busType = _str(j['bus_type']);
-  final String tripId, departAt, route, registration, status, role, busType;
+        // `crew_role`, which is what the platform calls it. Reading `role` here
+        // found nothing on every trip, so the pill on every card came out
+        // empty and a crew member was never told whether they were driving
+        // this one or helping on it — the one thing the card exists to say.
+        role = _str(j['crew_role']),
+        passengers = _int(j['passengers']),
+        boarded = _int(j['boarded']);
+  final String tripId, departAt, route, registration, status, role;
+  final int passengers, boarded;
 
   DateTime? get departure => DateTime.tryParse(departAt)?.toLocal();
 }
@@ -369,6 +377,24 @@ class ScanVerdict {
 
   bool get letThemOn => result == 'BOARDED';
   bool get alreadyOn => result == 'ALREADY_BOARDED';
+
+  /// The sentence the crew reads at the door.
+  ///
+  /// Keyed on [result], which is a platform constant and means the same in
+  /// every language, rather than on [message], which the platform writes in
+  /// English. It used to be shown verbatim, so the crew app spoke Bangla until
+  /// the moment it had a verdict — and then said "This ticket was cancelled. Do
+  /// not board." in English, to the person who has half a second to act on it.
+  ///
+  /// A queued verdict keeps its own words. Those were built on this device in
+  /// the reader's language and they say the one thing no catalogue entry here
+  /// can: that the check is written down but the office has not confirmed it.
+  String words(L l) {
+    if (queued) return message;
+    final key = 'sc.msg.$result';
+    if (kStrings.containsKey(key)) return l(key, {'seat': seatNo});
+    return message.isNotEmpty ? message : l('sc.msg.UNKNOWN');
+  }
 }
 
 class Incident {

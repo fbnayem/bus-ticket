@@ -45,7 +45,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
       final t = await AppScope.read(context).api.tracking(widget.pnr);
       if (mounted) setState(() { _t = t; _error = ''; });
     } on ApiError catch (e) {
-      if (mounted && _t == null) setState(() => _error = e.message);
+      if (mounted && _t == null) setState(() => _error = L.of(context).error(e));
     }
   }
 

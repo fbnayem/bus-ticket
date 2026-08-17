@@ -54,7 +54,7 @@ class _TripsScreenState extends State<TripsScreen> {
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = L.of(context).error(e);
         _waiting = widget.boarding.waiting;
       });
     }

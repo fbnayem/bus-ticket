@@ -45,7 +45,7 @@ class _RefundScreenState extends State<RefundScreen> {
       final q = await AppScope.read(context).api.cancellationQuote(widget.booking.pnr);
       if (mounted) setState(() => _quote = q);
     } on ApiError catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) setState(() => _error = L.of(context).error(e));
     }
   }
 
@@ -77,7 +77,7 @@ class _RefundScreenState extends State<RefundScreen> {
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = L.of(context).error(e);
         _busy = false;
       });
     }

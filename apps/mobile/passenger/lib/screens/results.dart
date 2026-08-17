@@ -35,7 +35,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
       final trips = await AppScope.read(context).api.search(widget.from, widget.to, widget.date);
       if (mounted) setState(() => _trips = trips);
     } on ApiError catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) setState(() => _error = L.of(context).error(e));
     }
   }
 

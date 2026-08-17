@@ -46,7 +46,7 @@ class _SignInScreenState extends State<SignInScreen> {
           _needCode = true;
           _totp.clear();
         }
-        _error = e.message;
+        _error = L.of(context).error(e);
         _busy = false;
       });
     }

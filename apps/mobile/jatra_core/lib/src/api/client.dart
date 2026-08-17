@@ -21,6 +21,12 @@ const String kApiBase = String.fromEnvironment(
 /// [body] is kept whole, because some refusals are *answers*: a boarding scan
 /// that comes back ALREADY_BOARDED arrives with a 409 and is exactly the verdict
 /// the crew needs to read. Throwing away the body would throw away the answer.
+///
+/// [code] is the part that matters to a screen and [message] is the part that
+/// matters to a log. This file cannot speak Bangla — it has no `BuildContext`
+/// and should never acquire one — so the English in here is a fallback, not the
+/// sentence a person reads. `errorText` in the i18n catalogue turns the code
+/// into the reader's own language, and every screen goes through it.
 class ApiError implements Exception {
   ApiError(this.status, this.code, this.message, [this.body]);
 
@@ -98,10 +104,23 @@ class ApiClient {
       throw ApiError(0, 'network', 'We could not reach the service. Check the connection and try again.');
     }
 
-    if (res.statusCode == 401) {
+    // A 401 is two different events, and treating them as one was a real fault.
+    //
+    // With a token attached it means the session this app was holding is no
+    // longer good: drop it and send the person back to a sign-in screen. With
+    // no token it is the *answer to a sign-in attempt* — the wrong password, or
+    // an account asking for its second factor — and the platform's own code is
+    // the entire content of that answer.
+    //
+    // This used to throw one sentence for both and discard the body. Two things
+    // followed. Somebody who mistyped a password was told their session had
+    // ended, when they had never had one. And `mfa_required`, which the
+    // platform sends as a 401, never reached the screen that watches for it —
+    // so the six-digit field never appeared and a staff account with MFA turned
+    // on could not sign in at all, by any route.
+    if (res.statusCode == 401 && bearer != null) {
       bearer = null;
       onUnauthenticated?.call();
-      throw ApiError(401, 'unauthenticated', 'Your session has ended. Please sign in again.');
     }
     // Status first, body second. This used to shortcut on an empty body before
     // looking at the status, which meant a 400 or a 502 with nothing in it
@@ -109,8 +128,13 @@ class ApiClient {
     // answer — a search with no buses, a wallet with no money, a booking with
     // no tickets. A refusal with no words is still a refusal.
     if (res.statusCode >= 400 && res.bodyBytes.isEmpty) {
-      throw ApiError(res.statusCode, 'http_${res.statusCode}',
-          'The service refused that request. Please try again.');
+      throw ApiError(
+        res.statusCode,
+        res.statusCode == 401 ? 'unauthenticated' : 'refused',
+        res.statusCode == 401
+            ? 'Your session has ended. Please sign in again.'
+            : 'The service refused that request. Please try again.',
+      );
     }
     if (res.statusCode == 204 || res.bodyBytes.isEmpty) return const {};
 

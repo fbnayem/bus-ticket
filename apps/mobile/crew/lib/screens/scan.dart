@@ -76,7 +76,7 @@ class _ScanScreenState extends State<ScanScreen> {
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = L.of(context).error(e);
         _checking = false;
       });
     }
@@ -275,7 +275,7 @@ class _Verdict extends StatelessWidget {
           if (verdict.passenger.isNotEmpty)
             Text(verdict.passenger, style: const TextStyle(fontSize: 15, color: J.ink2)),
           const SizedBox(height: 4),
-          Text(verdict.message, style: const TextStyle(fontSize: 14, height: 1.35)),
+          Text(verdict.words(l), style: const TextStyle(fontSize: 14, height: 1.35)),
           if (verdict.queued) ...[
             const SizedBox(height: 6),
             Row(children: [

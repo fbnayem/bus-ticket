@@ -96,7 +96,7 @@ class _PassengersScreenState extends State<PassengersScreen> {
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = L.of(context).error(e);
         _busy = false;
       });
     }

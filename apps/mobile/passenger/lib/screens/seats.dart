@@ -46,7 +46,7 @@ class _SeatsScreenState extends State<SeatsScreen> {
           .seatMap(widget.trip.tripId, widget.trip.boardSeq, widget.trip.dropSeq);
       if (mounted) setState(() => _map = m);
     } on ApiError catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) setState(() => _error = L.of(context).error(e));
     }
   }
 
@@ -94,7 +94,7 @@ class _SeatsScreenState extends State<SeatsScreen> {
       setState(() {
         // 409 is the inventory saying somebody else got there first. That is
         // the system working, not an error, and it is said in those words.
-        _error = e.status == 409 ? L.of(context)('hold.taken') : e.message;
+        _error = e.status == 409 ? L.of(context)('hold.taken') : L.of(context).error(e);
         _holding = false;
         _picked.clear();
       });
@@ -217,6 +217,24 @@ class _Legend extends StatelessWidget {
   }
 }
 
+/// The bus, drawn from whatever the platform actually sent.
+///
+/// Every coordinate here is read out of the data rather than assumed, and that
+/// is not defensiveness — both assumptions this code used to make were wrong
+/// against the real platform, and each one quietly removed seats a passenger
+/// could otherwise have bought:
+///
+///   * Rows were walked from 1, and the platform numbers them from 0. The front
+///     row of every bus on the network — A1 to A4 on a forty-seater — was drawn
+///     nowhere and could not be tapped.
+///   * A seat was looked up by row and column alone, and a sleeper coach puts a
+///     lower and an upper berth at the same row and column on different decks.
+///     The first match won, so the entire upper deck, half the coach, was
+///     invisible.
+///
+/// Neither showed up as an error. The map simply drew a smaller bus than the
+/// one leaving the terminal, which is the kind of fault that never files a bug
+/// report — it just quietly sells less than it should.
 class _Bus extends StatelessWidget {
   const _Bus({required this.map, required this.picked, required this.onTap});
 
@@ -229,8 +247,7 @@ class _Bus extends StatelessWidget {
     final l = L.of(context);
     if (map.seats.isEmpty) return Nothing(title: l('find.full'));
 
-    final maxRow = map.seats.map((s) => s.row).reduce((a, b) => a > b ? a : b);
-    final maxCol = map.seats.map((s) => s.col).reduce((a, b) => a > b ? a : b);
+    final decks = map.seats.map((s) => s.deck).toSet().toList()..sort();
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
@@ -245,7 +262,11 @@ class _Bus extends StatelessWidget {
       child: Column(
         children: [
           // The driver, drawn, so the map has an orientation and a passenger
-          // knows which end of the bus a seat number is at.
+          // knows which end of the bus a seat number is at. Drawn once, against
+          // the lowest deck, because that is where the driver sits — an upper
+          // deck with a steering wheel on it would be a tidier drawing and a
+          // lie. Both decks are laid out front-at-top, so one marker orients
+          // the whole coach.
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -265,32 +286,71 @@ class _Bus extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          for (var r = 1; r <= maxRow; r++)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  for (var c = 1; c <= maxCol; c++) ...[
-                    // The aisle. A bus is not a grid, and a map without a gap
-                    // down the middle makes people count squares to find 3B.
-                    if (c == (maxCol ~/ 2) + 1) const SizedBox(width: 26),
-                    _SeatBox(
-                      seat: _at(r, c),
-                      picked: picked,
-                      onTap: onTap,
-                    ),
-                  ],
-                ],
+          for (final deck in decks) ...[
+            if (decks.length > 1) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    l(deck == decks.first ? 'seat.lowerDeck' : 'seat.upperDeck'),
+                    style: const TextStyle(fontSize: 12.5, color: J.muted),
+                  ),
+                ),
               ),
+            ],
+            _Deck(
+              seats: map.seats.where((s) => s.deck == deck).toList(growable: false),
+              picked: picked,
+              onTap: onTap,
             ),
+            if (deck != decks.last) const SizedBox(height: 18),
+          ],
         ],
       ),
     );
   }
+}
+
+class _Deck extends StatelessWidget {
+  const _Deck({required this.seats, required this.picked, required this.onTap});
+
+  final List<Seat> seats;
+  final List<String> picked;
+  final void Function(Seat) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    // The rows and columns this deck actually has, in the order it has them.
+    final rows = seats.map((s) => s.row).toSet().toList()..sort();
+    final cols = seats.map((s) => s.col).toSet().toList()..sort();
+    // The aisle goes down the middle of however many columns there are, not at
+    // a fixed index: a sleeper is two abreast and a chair coach is four.
+    final aisleBefore = cols.length > 1 ? cols[cols.length ~/ 2] : null;
+
+    return Column(
+      children: [
+        for (final r in rows)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (final c in cols) ...[
+                  // A bus is not a grid, and a map without a gap down the
+                  // middle makes people count squares to find 3B.
+                  if (c == aisleBefore) const SizedBox(width: 26),
+                  _SeatBox(seat: _at(r, c), picked: picked, onTap: onTap),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
 
   Seat? _at(int row, int col) {
-    for (final s in map.seats) {
+    for (final s in seats) {
       if (s.row == row && s.col == col) return s;
     }
     return null;
@@ -307,7 +367,10 @@ class _SeatBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = seat;
-    if (s == null) return const SizedBox(width: 44, height: 44);
+    // A hole in the layout has to occupy exactly what a seat occupies — the box
+    // plus its 3pt of padding on each side — or every row below a gap sits
+    // shifted against the rows above it.
+    if (s == null) return const SizedBox(width: 50, height: 44);
 
     final mine = picked.contains(s.seatNo);
     final free = s.available;

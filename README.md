@@ -207,10 +207,17 @@ follows: Bangla words, Latin figures.
 
 ```
 flutter analyze     clean, all three packages
-flutter test        26 hermetic tests
+flutter test        53 hermetic tests
 --tags live          8 more, driving the running platform end to end (add --run-skipped)
 flutter build apk    Jatra 53 MB · Jatra Crew 65 MB
+on a device         both installed and driven: search → ticket, roster → boarding scan
 ```
+
+Running them on a device is not ceremony. It found four faults nothing else did
+— a seat map that omitted the front row of every bus and the whole upper deck of
+a sleeper, a crew roster reading a field name the platform does not send, and a
+401 handled as one event when it is two, which locked every MFA account out of
+the crew app. See [apps/mobile/README.md](apps/mobile/README.md).
 
 ---
 

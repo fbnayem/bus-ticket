@@ -40,7 +40,10 @@ enum PillTone { neutral, ok, inflight, warn, danger }
 
 PillTone toneOf(String status) => switch (status) {
       'TICKETED' || 'CONFIRMED' || 'COMPLETED' || 'BOARDED' || 'VALID' || 'SUCCESS' => PillTone.ok,
-      'PAYMENT_PENDING' || 'REQUESTED' || 'PROCESSING' || 'APPROVED' => PillTone.inflight,
+      // A trip that is under way is in flight in the literal sense.
+      'PAYMENT_PENDING' || 'REQUESTED' || 'PROCESSING' || 'APPROVED' ||
+      'BOARDING' || 'DEPARTED' || 'IN_PROGRESS' => PillTone.inflight,
+      'ARRIVED' => PillTone.ok,
       'EXPIRED' || 'REFUND_PENDING' => PillTone.warn,
       'CANCELLED' || 'FAILED' || 'REJECTED' => PillTone.danger,
       _ => PillTone.neutral,

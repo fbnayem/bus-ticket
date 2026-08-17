@@ -207,4 +207,48 @@ void main() {
     expect(store.queuedScans(), isEmpty,
         reason: 'a refusal is a decision; re-sending it forever would only hide it');
   });
+
+  group('the verdict is spoken in the language of whoever reads it', () {
+    // The platform writes its verdicts in English. The crew app is Bangla, and
+    // this sentence is the one a helper acts on with a queue behind them.
+    const bn = L(Lang.bn);
+
+    test('an online verdict is translated, not passed through', () {
+      final v = ScanVerdict.fromJson(const {
+        'result': 'CANCELLED', 'seat_no': 'A1', 'pnr': 'K7W4VP',
+        'message': 'This ticket was cancelled. Do not board.',
+      });
+      expect(v.words(bn), bn('sc.msg.CANCELLED'));
+      expect(v.words(bn), isNot(contains('board')));
+    });
+
+    test('the seat is named where the sentence names one', () {
+      final v = ScanVerdict.fromJson(const {
+        'result': 'BOARDED', 'seat_no': 'C3', 'pnr': 'K7W4VP', 'message': 'Boarded — seat C3',
+      });
+      expect(v.words(bn), contains('C3'), reason: 'the seat is half the answer');
+      expect(v.words(bn), bn('sc.msg.BOARDED', {'seat': 'C3'}));
+    });
+
+    test('every result the platform can send has words here', () {
+      for (final r in ['BOARDED', 'ALREADY_BOARDED', 'WRONG_TRIP', 'CANCELLED', 'NOT_FOUND']) {
+        final v = ScanVerdict.fromJson({'result': r, 'seat_no': 'A1', 'message': 'english'});
+        expect(v.words(bn), isNot('english'), reason: '$r reaches a Bangla screen untranslated');
+      }
+      // And something nobody planned for still says something sayable.
+      final odd = ScanVerdict.fromJson(const {'result': 'SOMETHING_NEW', 'message': ''});
+      expect(odd.words(bn), bn('sc.msg.UNKNOWN'));
+    });
+
+    test('a queued verdict keeps its own words, which say more', () {
+      // Built on the device, in the reader's language, and carrying the one
+      // thing that matters offline: the office has not confirmed this.
+      final v = ScanVerdict(
+        result: 'BOARDED', seatNo: 'A1', pnr: 'K7W4VP',
+        message: bn('sc.offBoarded', {'seat': 'A1'}), queued: true,
+      );
+      expect(v.words(bn), bn('sc.offBoarded', {'seat': 'A1'}));
+      expect(v.words(bn), isNot(bn('sc.msg.BOARDED', {'seat': 'A1'})));
+    });
+  });
 }

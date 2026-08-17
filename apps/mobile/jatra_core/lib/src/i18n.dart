@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import 'api/client.dart';
+
 /// Bangla and English, with Bangla the default.
 ///
 /// The rule the web product settled on and this follows exactly: **Bangla
@@ -47,6 +49,41 @@ const Map<String, Str> kStrings = {
   'common.name': Str('Name', 'নাম'),
   'common.ticketNo': Str('Ticket number', 'টিকিট নম্বর'),
 
+  /* ------------------------------------------------------------- refusals */
+  // Keyed by the code the transport raises, because the transport has no
+  // language. Everything a person is told when something fails goes through
+  // `errorText` below and lands here — otherwise the app is Bangla right up
+  // until the moment it has bad news, which is exactly the moment being
+  // understood matters most.
+  'err.timeout': Str('The service did not answer in time. Check the connection and try again.',
+      'সময়মতো উত্তর আসেনি। সংযোগ দেখে আবার চেষ্টা করুন।'),
+  'err.network': Str('We could not reach the service. Check the connection and try again.',
+      'সার্ভিসে পৌঁছানো গেল না। সংযোগ দেখে আবার চেষ্টা করুন।'),
+  'err.unauthenticated': Str('Your session has ended. Please sign in again.',
+      'আপনার সেশন শেষ হয়ে গেছে। আবার সাইন ইন করুন।'),
+  'err.refused': Str('The service refused that request. Please try again.',
+      'সার্ভিস অনুরোধটি নেয়নি। আবার চেষ্টা করুন।'),
+  'err.bad_response': Str('The service returned something unexpected.',
+      'সার্ভিস থেকে অপ্রত্যাশিত উত্তর এসেছে।'),
+  'err.unknown': Str('Something went wrong. Please try again.',
+      'কিছু একটা গোলমাল হয়েছে। আবার চেষ্টা করুন।'),
+  // The platform's own sign-in vocabulary. It sends these codes with English
+  // sentences; the crew app is Bangla for people who work in Bangla, and the
+  // sign-in screen is the one screen every one of them meets.
+  'err.bad_credentials': Str('That email and password do not match.',
+      'এই ইমেইল আর পাসওয়ার্ড মিলছে না।'),
+  'err.mfa_required': Str('Enter the six-digit code from your authenticator app.',
+      'আপনার অথেনটিকেটর অ্যাপের ছয় অঙ্কের কোডটি দিন।'),
+  'err.mfa_invalid': Str('That code is not right. Try the next one.',
+      'কোডটি ঠিক নয়। পরেরটি এলে চেষ্টা করুন।'),
+  'err.mfa_replayed': Str('That code has already been used. Wait for the next one.',
+      'এই কোডটি একবার ব্যবহার হয়ে গেছে। পরেরটির জন্য অপেক্ষা করুন।'),
+  'err.bad_code': Str('That code is wrong or has expired. Ask for a new one.',
+      'কোডটি ভুল, বা মেয়াদ শেষ। নতুন কোড চেয়ে নিন।'),
+  'err.token_reuse': Str(
+      'For your safety we signed out every device from that sign-in. Please sign in again.',
+      'নিরাপত্তার জন্য ওই সাইন ইনের সব ডিভাইস সাইন আউট করা হয়েছে। আবার সাইন ইন করুন।'),
+
   /* ------------------------------------------------------ passenger nav */
   'nav.search': Str('Find a bus', 'বাস খুঁজুন'),
   'nav.tickets': Str('My tickets', 'আমার টিকিট'),
@@ -77,6 +114,11 @@ const Map<String, Str> kStrings = {
   'seat.yours': Str('Yours', 'আপনার'),
   'seat.women': Str('Kept for women', 'নারীদের জন্য'),
   'seat.driver': Str('Driver', 'চালক'),
+  // Same wording as the website's seat map, because a sleeper berth is sold on
+  // both and a passenger who checked one before opening the other should not
+  // have to work out that two different phrases mean the same shelf.
+  'seat.lowerDeck': Str('Lower deck', 'নিচের তলা'),
+  'seat.upperDeck': Str('Upper deck', 'উপরের তলা'),
   'seat.max': Str('Up to 4 seats in one booking.', 'একবারে সর্বোচ্চ 4টি আসন।'),
   'seat.picked': Str('{seats} · {amount}', '{seats} · {amount}'),
   'seat.continue': Str('Continue with {n}', '{n}টি নিয়ে এগোন'),
@@ -226,6 +268,10 @@ const Map<String, Str> kStrings = {
   'cr.role.DRIVER': Str('Driver', 'চালক'),
   'cr.role.HELPER': Str('Helper', 'হেল্পার'),
   'cr.role.SUPERVISOR': Str('Supervisor', 'সুপারভাইজার'),
+  // What the platform sends when nobody has been put against the trip yet. It
+  // is a real answer and it belongs on the card: "not assigned" tells a driver
+  // to go and ask, where a blank tells them nothing at all.
+  'cr.role.UNASSIGNED': Str('Not assigned', 'দায়িত্ব দেওয়া হয়নি'),
   'cr.list': Str('Passenger list', 'যাত্রী তালিকা'),
   'cr.check': Str('Check tickets', 'টিকিট দেখুন'),
   'cr.problem': Str('Report a problem', 'সমস্যা জানান'),
@@ -270,6 +316,19 @@ const Map<String, Str> kStrings = {
       'আসন {seat}। লেখা হয়েছে — নেটওয়ার্ক ফিরলে নিশ্চিত হয়ে যাবে।'),
   'sc.offAlready': Str('Already marked boarded before we lost signal — seat {seat}.',
       'নেটওয়ার্ক যাওয়ার আগেই উঠেছেন বলে লেখা হয়েছিল — আসন {seat}।'),
+  // The verdict itself, keyed on the platform's result constant. The platform
+  // writes these in English; the person reading them is standing at a bus door
+  // in Bangladesh with the next passenger already pushing forward.
+  'sc.msg.BOARDED': Str('Boarded — seat {seat}', 'উঠেছেন — আসন {seat}'),
+  'sc.msg.ALREADY_BOARDED': Str('Already scanned. Seat {seat} is marked boarded.',
+      'আগেই স্ক্যান হয়েছে। আসন {seat} ওঠা হিসেবে লেখা আছে।'),
+  'sc.msg.WRONG_TRIP': Str('This ticket is for a different departure.',
+      'এই টিকিট অন্য যাত্রার।'),
+  'sc.msg.CANCELLED': Str('This ticket was cancelled. Do not board.',
+      'এই টিকিট বাতিল হয়েছে। উঠতে দেবেন না।'),
+  'sc.msg.NOT_FOUND': Str('No ticket found for that code.',
+      'এই নম্বরে কোনো টিকিট পাওয়া যায়নি।'),
+  'sc.msg.UNKNOWN': Str('That code could not be read.', 'নম্বরটি পড়া গেল না।'),
   'sc.recent': Str('Recent checks on this phone', 'এই ফোনে সাম্প্রতিক যাচাই'),
   'sc.cameraDenied': Str('The camera is not allowed, so type the number instead.',
       'ক্যামেরার অনুমতি নেই, তাই নম্বরটি লিখুন।'),
@@ -308,6 +367,18 @@ const Map<String, Str> kStrings = {
   'status.FAILED': Str('Did not go through', 'হয়নি'),
   'status.BOARDED': Str('On board', 'বাসে উঠেছেন'),
   'status.VALID': Str('Valid', 'বৈধ'),
+  // Where a *trip* is up to, as against where a booking is. The crew roster
+  // shows this on every card and had translations for none of it, so a driver
+  // reading a Bangla app was handed the raw database word — OPEN — in English.
+  // Wording matches the website's, because the same trip is described to the
+  // office and to the road and they have to be talking about the same thing.
+  'status.DRAFT': Str('Draft', 'খসড়া'),
+  'status.SCHEDULED': Str('Scheduled', 'সময় ঠিক আছে'),
+  'status.OPEN': Str('On sale', 'টিকিট বিক্রি চলছে'),
+  'status.BOARDING': Str('Boarding now', 'যাত্রী উঠছে'),
+  'status.DEPARTED': Str('On the road', 'পথে আছে'),
+  'status.IN_PROGRESS': Str('On the road', 'পথে আছে'),
+  'status.ARRIVED': Str('Arrived', 'পৌঁছে গেছে'),
 
   /* ------------------------------------------------------------ notify */
   'nt.soonTitle': Str('Your bus leaves in 2 hours', 'আপনার বাস 2 ঘণ্টা পরে ছাড়বে'),
@@ -345,6 +416,19 @@ class L {
   bool get isBn => lang == Lang.bn;
 
   static L of(BuildContext context) => LangScope.of(context).l;
+
+  /// The words to put on the screen for a refusal.
+  ///
+  /// Order matters, and it is this way round on purpose. A code this catalogue
+  /// knows wins, because those are the transport's own generic failures and its
+  /// English is only a fallback for a log file. Otherwise the platform's own
+  /// sentence wins, because a specific refusal — *seat A1 has just gone* — is
+  /// worth more to the person reading it than a correctly translated shrug.
+  String error(Object e) {
+    if (e is! ApiError) return this('err.unknown');
+    if (kStrings.containsKey('err.${e.code}')) return this('err.${e.code}');
+    return e.message.isNotEmpty ? e.message : this('err.unknown');
+  }
 }
 
 /// Makes the current language available to every widget below it.

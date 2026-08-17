@@ -26,6 +26,11 @@ http.Response _json(Object body, [int code = 200]) => http.Response.bytes(
 MockClient _platform() => MockClient((req) async {
       final p = req.url.path;
       if (p.endsWith('/driver/trips')) {
+        // Field names copied from a real `/driver/trips` response, not from
+        // what the app happened to read. This fixture used to say `role`,
+        // which the app also said, so the pair agreed with each other and both
+        // disagreed with the platform: the field is `crew_role`, the pill came
+        // out empty on every card in production, and the test stayed green.
         return _json({
           'trips': [
             {
@@ -33,8 +38,10 @@ MockClient _platform() => MockClient((req) async {
               'depart_at': '2099-09-01T22:00:00+06:00',
               'route': 'Dhaka → Chattogram',
               'registration': 'DHA-METRO-B-11-2288',
-              'status': 'SCHEDULED',
-              'role': 'DRIVER',
+              'status': 'OPEN',
+              'crew_role': 'DRIVER',
+              'passengers': 12,
+              'boarded': 0,
             }
           ]
         });
@@ -90,11 +97,31 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
+    const l = L(Lang.bn);
     expect(find.text('22:00'), findsOneWidget,
         reason: 'the time is the question a driver at a terminal is asking');
     expect(find.text('Dhaka → Chattogram'), findsOneWidget);
-    expect(find.text(const L(Lang.bn)('cr.role.DRIVER')), findsOneWidget);
+    expect(find.text(l('cr.role.DRIVER')), findsOneWidget,
+        reason: 'a crew member has to be told whether they are driving it');
+    expect(find.text(l('status.OPEN')), findsOneWidget,
+        reason: 'the roster is Bangla; OPEN is a database word, not a sentence');
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('no pill on the roster is ever blank or raw English',
+      (tester) async {
+    final (session, boarding) = await _rig();
+    await tester.pumpWidget(_wrap(session, TripsScreen(boarding: boarding)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // An empty pill is how the missing `crew_role` showed up on a real device:
+    // a small grey box with nothing in it, on every card, saying nothing.
+    for (final pill in tester.widgetList<Pill>(find.byType(Pill))) {
+      expect(pill.label.trim(), isNotEmpty, reason: 'a pill with no words is not a pill');
+      expect(pill.label, isNot(matches(RegExp(r'^[A-Z][A-Z_]+$'))),
+          reason: '"${pill.label}" is a raw platform constant reaching a Bangla screen');
+    }
   });
 
   testWidgets('nothing queued means no queue bar', (tester) async {

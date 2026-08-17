@@ -10,6 +10,7 @@ import 'package:jatra_passenger/app_state.dart';
 import 'package:jatra_passenger/reminders.dart';
 import 'package:jatra_passenger/screens/home.dart';
 import 'package:jatra_passenger/screens/offers.dart';
+import 'package:jatra_passenger/screens/seats.dart';
 import 'package:jatra_passenger/screens/ticket.dart';
 import 'package:jatra_passenger/screens/tickets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -54,9 +55,57 @@ http.Response _json(Object body, [int code = 200]) => http.Response.bytes(
       headers: {'content-type': 'application/json; charset=utf-8'},
     );
 
+/// A seat map shaped the way the platform actually shapes one.
+///
+/// Two details here are the whole point of the tests below, and both were got
+/// wrong against the real service: rows are numbered **from zero**, and a
+/// sleeper puts two berths on the same row and column of different decks.
+Map<String, dynamic> _seatMap({
+  required int decks,
+  required int rows,
+  required int cols,
+  required String Function(int deck, int row, int col) name,
+}) =>
+    {
+      'trip_id': 't-1',
+      'board_seq': 0,
+      'drop_seq': 3,
+      'seats': [
+        for (var d = 1; d <= decks; d++)
+          for (var r = 0; r < rows; r++)
+            for (var c = 1; c <= cols; c++)
+              {
+                'seat_no': name(d, r, c),
+                'seat_type': decks > 1 ? 'SLEEPER' : 'NORMAL',
+                'deck': d,
+                'row': r,
+                'col': c,
+                'available': true,
+                'sold': false,
+                'held': false,
+                'blocked': false,
+              },
+      ],
+    };
+
+String _rowLetter(int r) => String.fromCharCode(65 + r);
+
+TripSummary _trip() => TripSummary.fromJson({
+      'trip_id': 't-1',
+      'brand': 'Green Line',
+      'bus_type': 'AC Business',
+      'depart_at': '2099-09-01T22:00:00+06:00',
+      'origin': 'Dhaka',
+      'destination': 'Chattogram',
+      'fare_poisha': 115000,
+      'board_seq': 0,
+      'drop_seq': 3,
+    });
+
 /// Answers whatever the screen under test asks for.
-MockClient _platform() => MockClient((req) async {
+MockClient _platform({Map<String, dynamic>? seatMap}) => MockClient((req) async {
       final p = req.url.path;
+      if (p.endsWith('/seatmap')) return _json(seatMap ?? const {'seats': []});
       if (p.endsWith('/offers')) {
         return _json({
           'offers': [
@@ -73,11 +122,15 @@ MockClient _platform() => MockClient((req) async {
       return _json(const {});
     });
 
-Future<AppState> _state({List<String> tickets = const []}) async {
+Future<AppState> _state({
+  List<String> tickets = const [],
+  Map<String, dynamic>? seatMap,
+}) async {
   SharedPreferences.setMockInitialValues({'jatra.tickets': tickets});
   final store = await Store.open();
   return AppState(
-    api: PassengerApi(ApiClient(base: 'http://test/api/v1', httpClient: _platform())),
+    api: PassengerApi(
+        ApiClient(base: 'http://test/api/v1', httpClient: _platform(seatMap: seatMap))),
     store: store,
     // Constructed directly rather than through start(), which would try to talk
     // to a notification plugin that does not exist in a test binding.
@@ -149,6 +202,98 @@ void main() {
 
     expect(find.text('ঈদ সফর — 15% ছাড়'), findsOneWidget);
     expect(find.text('EIDSAFAR'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('every seat the platform sent is on the map, including the front row',
+      (tester) async {
+    // Forty seats, rows numbered from zero exactly as the platform numbers
+    // them. The front row is the one that used to vanish.
+    final state = await _state(
+      seatMap: _seatMap(
+        decks: 1,
+        rows: 10,
+        cols: 4,
+        name: (_, r, c) => '${_rowLetter(r)}$c',
+      ),
+    );
+    await tester.pumpWidget(_wrap(state, SeatsScreen(trip: _trip())));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    for (var r = 0; r < 10; r++) {
+      for (var c = 1; c <= 4; c++) {
+        final no = '${_rowLetter(r)}$c';
+        expect(find.text(no), findsOneWidget,
+            reason: '$no was sent by the platform and must be on the map');
+      }
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the front row can actually be bought, not merely drawn',
+      (tester) async {
+    final state = await _state(
+      seatMap: _seatMap(
+        decks: 1, rows: 10, cols: 4, name: (_, r, c) => '${_rowLetter(r)}$c'),
+    );
+    await tester.pumpWidget(_wrap(state, SeatsScreen(trip: _trip())));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('A1'));
+    await tester.pump();
+
+    // The bar only appears once a seat is chosen, and it names the seat and its
+    // fare — so its presence is proof the tap reached the inventory-backed
+    // selection rather than a decorative square.
+    expect(find.text('A1'), findsWidgets);
+    expect(find.text(taka(115000)), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a sleeper shows both decks, not just the one nearest the door',
+      (tester) async {
+    // Twelve berths below, twelve above, sharing row and column. Looking a seat
+    // up by row and column alone hid the upper deck entirely.
+    final state = await _state(
+      seatMap: _seatMap(
+        decks: 2,
+        rows: 6,
+        cols: 2,
+        name: (d, r, c) => '${d == 1 ? 'L' : 'U'}${_rowLetter(r)}$c',
+      ),
+    );
+    await tester.pumpWidget(_wrap(state, SeatsScreen(trip: _trip())));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    for (var r = 0; r < 6; r++) {
+      for (var c = 1; c <= 2; c++) {
+        expect(find.text('L${_rowLetter(r)}$c'), findsOneWidget);
+        expect(find.text('U${_rowLetter(r)}$c'), findsOneWidget);
+      }
+    }
+    // And each deck is named, so a berth number means a shelf.
+    const l = L(Lang.bn);
+    expect(find.text(l('seat.lowerDeck')), findsOneWidget);
+    expect(find.text(l('seat.upperDeck')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a single-deck coach is not given a deck label it does not need',
+      (tester) async {
+    final state = await _state(
+      seatMap: _seatMap(
+        decks: 1, rows: 10, cols: 4, name: (_, r, c) => '${_rowLetter(r)}$c'),
+    );
+    await tester.pumpWidget(_wrap(state, SeatsScreen(trip: _trip())));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    const l = L(Lang.bn);
+    expect(find.text(l('seat.lowerDeck')), findsNothing);
+    expect(find.text(l('seat.upperDeck')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
