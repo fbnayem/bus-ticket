@@ -1,6 +1,7 @@
 'use client';
 
 import { taka } from '@/lib/format';
+import { useLang } from '@/components/LangProvider';
 
 // Small, shared pieces for the staff workplaces. Everything here is a
 // presentation detail; nothing decides what a person may do.
@@ -35,12 +36,15 @@ export function Money({ poisha, decimals = false }: { poisha: number; decimals?:
 
 // A variance is the one number on a money screen that must never look neutral.
 export function Variance({ poisha }: { poisha: number }) {
-  if (poisha === 0) return <span className="pill pill-ok">Balanced</span>;
+  // Translated like StatusPill: this pill appears on the counter's own cash
+  // screen, which a clerk reads in Bangla, as well as on the English finance
+  // consoles. The words follow the reader, not the screen.
+  const { t, fmt } = useLang();
+  if (poisha === 0) return <span className="pill pill-ok">{t('var.balanced')}</span>;
   const over = poisha > 0;
   return (
     <span className={`pill ${over ? 'pill-warn' : 'pill-danger'}`}>
-      {over ? 'Over by ' : 'Short by '}
-      {taka(Math.abs(poisha), { decimals: true })}
+      {t(over ? 'var.over' : 'var.short', { amount: fmt.taka(Math.abs(poisha), { decimals: true }) })}
     </span>
   );
 }

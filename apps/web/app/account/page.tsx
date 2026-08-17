@@ -7,13 +7,27 @@ import { ApiError, type AccountBooking, type SavedPassenger } from '@/lib/api';
 import { authed, isSignedIn, sessions, signOut, signOutEverywhere, updateProfile,
   type DeviceSession } from '@/lib/auth';
 import { Empty, ErrorNotice, Loading, StatusPill } from '@/components/ui';
-import { dateTimeOf, taka } from '@/lib/format';
+import { Ref } from '@/components/Ref';
+import { Glyph } from '@/components/Glyph';
+import { useLang } from '@/components/LangProvider';
+import { LANGS, LANG_NAME } from '@/lib/i18n';
 
-// The account area is now behind a real sign-in, so every call here carries a
-// bearer token and the server decides what belongs to this passenger. A visitor
-// who is not signed in gets an invitation, not an empty list.
+/**
+ * The account area.
+ *
+ * The heading used to say "My account", which is a place; it now says "My
+ * trips", which is a reason to come here. Nobody opens a bus app to visit their
+ * account.
+ *
+ * The tab row was six buttons styled with inline borders that wrapped onto two
+ * lines in Bangla and had no `role`, so a screen reader met six unrelated
+ * buttons rather than a tab strip. It is now a real tablist that scrolls
+ * sideways instead of wrapping, and the labels say what is behind them:
+ * "Devices" — a word that means nothing to most readers — became "Where you are
+ * signed in".
+ */
 
-type Tab = 'upcoming' | 'past' | 'passengers' | 'profile' | 'devices' | 'referrals';
+type Tab = 'upcoming' | 'past' | 'passengers' | 'referrals' | 'devices' | 'profile';
 
 interface Profile {
   display_name: string;
@@ -33,6 +47,7 @@ interface Referral {
 
 export default function AccountPage() {
   const router = useRouter();
+  const { t, fmt } = useLang();
   const [tab, setTab] = useState<Tab>('upcoming');
   const [upcoming, setUpcoming] = useState<AccountBooking[]>([]);
   const [past, setPast] = useState<AccountBooking[]>([]);
@@ -75,14 +90,12 @@ export default function AccountPage() {
   if (!signedIn) {
     return (
       <div className="page container">
-        <h1>My account</h1>
-        <Empty title="Sign in to see your trips">
-          <p className="muted" style={{ maxWidth: 460 }}>
-            Your bookings live against your mobile number. Sign in with a one-time
-            code and anything you already booked on that number appears here.
-          </p>
-          <Link className="btn btn-primary" href="/login?next=/account" style={{ marginTop: '.6rem' }}>
-            Sign in
+        <h1>{t('ac.title')}</h1>
+        <Empty title={t('ac.signInTitle')}>
+          <p className="muted" style={{ maxWidth: 460, margin: '0 auto' }}>{t('ac.signInBody')}</p>
+          <Link className="btn btn-primary btn-lg" href="/login?next=/account"
+                style={{ marginTop: '.9rem' }}>
+            {t('li.title')}
           </Link>
         </Empty>
       </div>
@@ -90,145 +103,158 @@ export default function AccountPage() {
   }
 
   const TABS: { id: Tab; label: string; count?: number }[] = [
-    { id: 'upcoming', label: 'Upcoming trips', count: upcoming.length },
-    { id: 'past', label: 'Past trips', count: past.length },
-    { id: 'passengers', label: 'Saved passengers', count: passengers.length },
-    { id: 'referrals', label: 'Invite a friend' },
-    { id: 'devices', label: 'Devices', count: devices.length },
-    { id: 'profile', label: 'Profile' },
+    { id: 'upcoming',   label: t('ac.tab.upcoming'),   count: upcoming.length },
+    { id: 'past',       label: t('ac.tab.past'),       count: past.length },
+    { id: 'passengers', label: t('ac.tab.passengers'), count: passengers.length },
+    { id: 'referrals',  label: t('ac.tab.referrals') },
+    { id: 'devices',    label: t('ac.tab.devices'),    count: devices.length },
+    { id: 'profile',    label: t('ac.tab.profile') },
   ];
 
   return (
     <div className="page container">
       <div className="row-between" style={{ alignItems: 'flex-start' }}>
         <div>
-          <h1 style={{ marginBottom: '.3rem' }}>My account</h1>
-          <p className="muted small" data-testid="account-identity">
-            Signed in as <span className="mono">{profile?.phone}</span>
+          <h1 style={{ marginBottom: '.2rem' }}>{t('ac.title')}</h1>
+          <p className="muted small" data-testid="account-identity" style={{ margin: 0 }}>
+            {t('ac.signedInAs', { phone: profile?.phone ?? '' })}
             {profile?.display_name ? ` · ${profile.display_name}` : ''}
           </p>
         </div>
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={async () => { await signOut(); router.push('/'); }}
-        >
-          Sign out
+        <button className="btn btn-ghost btn-sm"
+                onClick={async () => { await signOut(); router.push('/'); }}>
+          {t('ac.signOut')}
         </button>
       </div>
 
-      <div className="row" style={{ gap: '.3rem', margin: '1rem 0', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-        {TABS.map((t) => (
+      <div className="tabstrip" role="tablist" aria-label={t('ac.title')}>
+        {TABS.map((x) => (
           <button
-            key={t.id}
-            className="btn btn-ghost btn-sm"
-            onClick={() => setTab(t.id)}
-            style={{
-              border: 0, borderRadius: 0, borderBottom: '2px solid',
-              borderBottomColor: tab === t.id ? 'var(--brand)' : 'transparent',
-              color: tab === t.id ? 'var(--ink)' : 'var(--muted)',
-              fontWeight: tab === t.id ? 650 : 550,
-            }}
+            key={x.id}
+            role="tab"
+            id={`tab-${x.id}`}
+            aria-selected={tab === x.id}
+            aria-controls={`panel-${x.id}`}
+            onClick={() => setTab(x.id)}
           >
-            {t.label}{typeof t.count === 'number' ? ` (${t.count})` : ''}
+            {x.label}
+            {typeof x.count === 'number' && <span className="t-count">{x.count}</span>}
           </button>
         ))}
       </div>
 
       {error && <ErrorNotice message={error} onRetry={load} />}
 
-      {tab === 'upcoming' && <TripList rows={upcoming} empty="No upcoming trips" cta />}
-      {tab === 'past' && <TripList rows={past} empty="No past trips yet" />}
+      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+        {tab === 'upcoming' && <TripList rows={upcoming} empty={t('ac.noUpcoming')} cta />}
+        {tab === 'past' && <TripList rows={past} empty={t('ac.noPast')} />}
 
-      {tab === 'passengers' && (
-        passengers.length === 0
-          ? <Empty title="No saved passengers" />
-          : <div className="card">
-              <table className="data">
-                <thead><tr><th>Name</th><th>Gender</th><th>Age</th><th>ID</th></tr></thead>
-                <tbody>
-                  {passengers.map((p) => (
-                    <tr key={p.id}>
-                      <td><strong>{p.full_name}</strong></td>
-                      <td>{p.gender || '—'}</td>
-                      <td className="tnum">{p.age || '—'}</td>
-                      <td className="mono small">{p.id_type} {p.id_number}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-      )}
-
-      {tab === 'referrals' && referral && (
-        <div className="stack">
-          <div className="card card-pad stack" style={{ maxWidth: 560 }}>
-            <h2 style={{ marginBottom: 0 }}>Your invite code</h2>
-            <p className="muted small" style={{ marginBottom: '.4rem' }}>
-              Share it. When someone signs up with it and takes their first paid
-              trip, you get {taka(referral.reward_poisha)} off your next ticket.
-            </p>
-            <div className="mono" style={{ fontSize: '1.6rem', letterSpacing: '.12em' }}>
-              {referral.code}
-            </div>
-          </div>
-          {history.length > 0 && (
-            <div className="card">
-              <table className="data">
-                <thead><tr><th>Code</th><th>Status</th><th>Reward</th><th>Coupon</th></tr></thead>
-                <tbody>
-                  {history.map((r) => (
-                    <tr key={r.code}>
-                      <td className="mono">{r.code}</td>
-                      <td><StatusPill status={r.status} /></td>
-                      <td className="tnum">{taka(r.reward_poisha)}</td>
-                      <td className="mono small">{r.reward_code || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === 'devices' && (
-        <div className="stack">
-          <p className="muted small">
-            Every sign-in is a session. Ending them all revokes the refresh tokens
-            too, so a phone you no longer have cannot quietly renew itself.
-          </p>
-          <div className="card">
-            <table className="data">
-              <thead><tr><th>Device</th><th>Signed in</th><th>Last used</th><th /></tr></thead>
-              <tbody>
-                {devices.map((d) => (
-                  <tr key={d.session_id}>
-                    <td>{d.device}{d.current && <span className="pill pill-ok" style={{ marginLeft: '.4rem' }}>This one</span>}</td>
-                    <td className="small muted">{dateTimeOf(d.created_at)}</td>
-                    <td className="small muted">{dateTimeOf(d.last_seen_at)}</td>
-                    <td className="mono small">{d.ip}</td>
-                  </tr>
+        {tab === 'passengers' && (
+          passengers.length === 0
+            ? <Empty title={t('ac.noPassengers')}>
+                <p className="muted" style={{ maxWidth: 420, margin: '0 auto' }}>
+                  {t('ac.passengersBody')}
+                </p>
+              </Empty>
+            : <div className="stack-sm">
+                {passengers.map((p) => (
+                  <div className="pick" key={p.id} style={{ cursor: 'default' }}>
+                    <span className="pick-glyph"><Glyph name="person" /></span>
+                    <span className="pick-body">
+                      <span className="pick-title">{p.full_name}</span>
+                      <span className="pick-note">
+                        {[p.gender, p.age ? String(p.age) : '', p.id_number ? `${p.id_type} ${p.id_number}` : '']
+                          .filter(Boolean).join(' · ') || '—'}
+                      </span>
+                    </span>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
-          <div>
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={async () => { await signOutEverywhere(); await signOut(); router.push('/'); }}
-            >
-              Sign out everywhere
-            </button>
-          </div>
-        </div>
-      )}
+              </div>
+        )}
 
-      {tab === 'profile' && profile && <ProfileForm profile={profile} onSaved={load} />}
+        {tab === 'referrals' && referral && (
+          <div className="stack">
+            <div className="card card-pad stack-sm" style={{ maxWidth: 560 }}>
+              <h2 style={{ marginBottom: 0, fontSize: '1.05rem' }}>{t('ac.inviteCode')}</h2>
+              <p className="muted small" style={{ marginBottom: '.5rem' }}>
+                {t('ac.inviteBody', { amount: fmt.taka(referral.reward_poisha) })}
+              </p>
+              <div className="coupon-code" style={{ fontSize: '1.7rem' }}>
+                <Ref value={referral.code} copyable />
+              </div>
+            </div>
+            {history.length > 0 && (
+              <div className="card">
+                <div className="card-head">{t('ac.inviteHistory')}</div>
+                <div className="table-wrap">
+                  <table className="data">
+                    <thead>
+                      <tr><th>{t('ac.inviteCode')}</th><th>{t('common.status')}</th><th /></tr>
+                    </thead>
+                    <tbody>
+                      {history.map((r) => (
+                        <tr key={r.code}>
+                          <td><Ref value={r.code} /></td>
+                          <td><StatusPill status={r.status} /></td>
+                          <td className="tnum">{fmt.taka(r.reward_poisha)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'devices' && (
+          <div className="stack">
+            <p className="muted small" style={{ maxWidth: 560 }}>{t('ac.devicesBody')}</p>
+            <div className="stack-sm">
+              {devices.map((d) => (
+                <div className="pick" key={d.session_id} style={{ cursor: 'default' }}>
+                  <span className="pick-glyph"><Glyph name="phone" /></span>
+                  <span className="pick-body">
+                    <span className="pick-title">
+                      {d.device}
+                      {d.current && (
+                        <span className="pill pill-ok" style={{ marginLeft: '.45rem' }}>
+                          {t('ac.thisDevice')}
+                        </span>
+                      )}
+                    </span>
+                    {/*
+                      The IP address used to be a column of its own, which told a
+                      passenger nothing and looked like a leak. What answers
+                      "should I be worried about this one?" is when it was last
+                      used, so that is what the row says.
+                    */}
+                    <span className="pick-note">
+                      {t('ac.lastUsed', { when: fmt.dateTime(d.last_seen_at) })}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={async () => { await signOutEverywhere(); await signOut(); router.push('/'); }}
+              >
+                {t('ac.signOutAll')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {tab === 'profile' && profile && <ProfileForm profile={profile} onSaved={load} />}
+      </div>
     </div>
   );
 }
 
 function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: () => void }) {
+  const { t } = useLang();
   const [name, setName] = useState(profile.display_name ?? '');
   const [email, setEmail] = useState(profile.email ?? '');
   const [lang, setLang] = useState(profile.lang ?? 'bn');
@@ -249,56 +275,77 @@ function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: () => vo
         } finally { setBusy(false); }
       }}
     >
-      <dl className="kv">
-        <dt>Mobile</dt><dd className="mono">{profile.phone}</dd>
-      </dl>
-      <label htmlFor="name">Name</label>
-      <input id="name" value={name} onChange={(e) => setName(e.target.value)} />
-      <label htmlFor="email">Email</label>
-      <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-      <label htmlFor="lang">Language for messages</label>
-      <select id="lang" value={lang} onChange={(e) => setLang(e.target.value)}>
-        <option value="bn">বাংলা</option>
-        <option value="en">English</option>
-      </select>
-      <p className="small muted" style={{ marginBottom: 0 }}>
-        Your ticket confirmation, cancellation and refund messages are sent in this
-        language.
-      </p>
+      <div className="field">
+        <span className="label">{t('ac.mobile')}</span>
+        <Ref value={profile.phone} />
+      </div>
+
+      <div className="field">
+        <label className="label" htmlFor="name">{t('ac.name')}</label>
+        <input className="input" id="name" value={name} onChange={(e) => setName(e.target.value)} />
+      </div>
+
+      <div className="field">
+        <label className="label" htmlFor="email">{t('ac.email')}</label>
+        <input className="input" id="email" type="email" inputMode="email"
+               value={email} onChange={(e) => setEmail(e.target.value)} />
+      </div>
+
+      <div className="field">
+        <label className="label" htmlFor="lang">{t('ac.msgLang')}</label>
+        <select className="select" id="lang" value={lang} onChange={(e) => setLang(e.target.value)}>
+          {LANGS.map((l) => <option key={l} value={l}>{LANG_NAME[l]}</option>)}
+        </select>
+        <span className="hint">{t('ac.msgLangNote')}</span>
+      </div>
+
       <button className="btn btn-primary" disabled={busy} type="submit">
-        {busy ? 'Saving…' : 'Save'}
+        {busy ? t('ac.saving') : t('ac.save')}
       </button>
-      {saved && <div className="notice notice-info small">Saved.</div>}
+      {saved && <div className="notice notice-info small" role="status">{t('ac.saved')}</div>}
     </form>
   );
 }
 
 function TripList({ rows, empty, cta }: { rows: AccountBooking[]; empty: string; cta?: boolean }) {
+  const { t, fmt } = useLang();
+
   if (rows.length === 0) {
     return (
       <Empty title={empty}>
-        {cta && <Link className="btn btn-primary" href="/search" style={{ marginTop: '.6rem' }}>Find a bus</Link>}
+        {cta && (
+          <Link className="btn btn-primary btn-lg" href="/search" style={{ marginTop: '.7rem' }}>
+            {t('ac.findBus')}
+          </Link>
+        )}
       </Empty>
     );
   }
+
   return (
-    <div className="stack">
+    <div className="stack-sm">
       {rows.map((b) => (
-        <div className="card card-pad row-between" key={b.pnr}>
-          <div>
-            <div className="row" style={{ gap: '.5rem' }}>
-              <strong>{b.origin} → {b.destination}</strong>
-              <StatusPill status={b.status} />
+        <div className="card card-pad" key={b.pnr}>
+          <div className="row-between" style={{ alignItems: 'flex-start' }}>
+            <div style={{ minWidth: 0 }}>
+              <div className="row" style={{ gap: '.5rem' }}>
+                <strong style={{ fontSize: '1.02rem' }}>{b.origin} → {b.destination}</strong>
+                <StatusPill status={b.status} />
+              </div>
+              <div className="small muted" style={{ marginTop: '.15rem' }}>
+                {fmt.dateTime(b.depart_at)} · {b.brand} · {b.seat_count === 1 ? t('ac.seat1') : t('ac.seatsN', { count: b.seat_count })}
+              </div>
+              <div className="small muted">
+                {t('find.label')} <Ref value={b.pnr} />
+              </div>
             </div>
-            <div className="small muted">
-              {b.brand} · {dateTimeOf(b.depart_at)} · {b.seat_count} seat{b.seat_count > 1 ? 's' : ''} ·{' '}
-              <span className="mono">{b.pnr}</span>
-            </div>
+            <span className="tnum" style={{ fontWeight: 700, fontSize: '1.05rem' }}>
+              {fmt.taka(b.total_poisha)}
+            </span>
           </div>
-          <div className="row" style={{ gap: '.4rem' }}>
-            <span className="tnum" style={{ fontWeight: 700 }}>{taka(b.total_poisha)}</span>
-            <Link className="btn btn-ghost btn-sm" href={`/tickets/${b.pnr}`}>Ticket</Link>
-            <Link className="btn btn-ghost btn-sm" href={`/manage/${b.pnr}`}>Manage</Link>
+          <div className="row" style={{ gap: '.5rem', marginTop: '.7rem' }}>
+            <Link className="btn btn-ghost btn-sm" href={`/tickets/${b.pnr}`}>{t('ac.ticket')}</Link>
+            <Link className="btn btn-ghost btn-sm" href={`/manage/${b.pnr}`}>{t('ac.manage')}</Link>
           </div>
         </div>
       ))}

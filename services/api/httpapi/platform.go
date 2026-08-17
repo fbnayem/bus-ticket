@@ -595,12 +595,12 @@ func (s *Server) handleReconRun(w http.ResponseWriter, r *http.Request, id *staf
 // without waiting for a real aggregator file.
 func (s *Server) handleReconImport(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
 	var req struct {
-		Provider      string `json:"provider"`
-		BusinessDate  string `json:"business_date"`
-		GatewayCSV    string `json:"gateway_csv"`
-		BankCSV       string `json:"bank_csv"`
-		Generate      bool   `json:"generate"`
-		SeedExceptions bool  `json:"seed_exceptions"`
+		Provider       string `json:"provider"`
+		BusinessDate   string `json:"business_date"`
+		GatewayCSV     string `json:"gateway_csv"`
+		BankCSV        string `json:"bank_csv"`
+		Generate       bool   `json:"generate"`
+		SeedExceptions bool   `json:"seed_exceptions"`
 	}
 	if err := decode(r, &req); err != nil {
 		fail(w, 400, "bad_request", "We could not read that request.")
@@ -673,8 +673,11 @@ func (s *Server) handleCampaigns(w http.ResponseWriter, r *http.Request, _ *staf
 
 func (s *Server) handleCreateCampaign(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
 	var req struct {
-		Code           string `json:"code"`
-		Title          string `json:"title"`
+		Code  string `json:"code"`
+		Title string `json:"title"`
+		// Optional Bangla copy. A campaign created without it still shows,
+		// in whatever language it was written in.
+		TitleBn        string `json:"title_bn"`
 		Kind           string `json:"kind"`
 		DiscountPct    int    `json:"discount_pct"`
 		MaxDiscount    int64  `json:"max_discount_poisha"`
@@ -698,10 +701,10 @@ func (s *Server) handleCreateCampaign(w http.ResponseWriter, r *http.Request, id
 	}
 	if _, err := s.pool.Exec(r.Context(), `
 		INSERT INTO promo.campaigns
-			(code, title, kind, discount_pct, max_discount_poisha, min_amount_poisha,
+			(code, title, title_bn, kind, discount_pct, max_discount_poisha, min_amount_poisha,
 			 max_redemptions, per_user_limit, ends_at)
-		VALUES (upper($1), $2, $3, $4, $5, $6, $7, $8, now() + make_interval(days => $9))`,
-		req.Code, req.Title, req.Kind, req.DiscountPct, req.MaxDiscount, req.MinAmount,
+		VALUES (upper($1), $2, NULLIF($3,''), $4, $5, $6, $7, $8, $9, now() + make_interval(days => $10))`,
+		req.Code, req.Title, req.TitleBn, req.Kind, req.DiscountPct, req.MaxDiscount, req.MinAmount,
 		req.MaxRedemptions, req.PerUserLimit, req.Days); err != nil {
 		fail(w, 400, "create_failed", "Could not create that campaign — is the code already in use?")
 		return

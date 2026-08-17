@@ -540,7 +540,16 @@ func (s *Server) listSettlements(r *http.Request, operatorID string) []map[strin
 		  LEFT JOIN staff.staff_users rv ON rv.staff_id = st.reviewed_by
 		  LEFT JOIN staff.staff_users ap ON ap.staff_id = st.approved_by
 		 WHERE ($1='' OR st.operator_id = $1::uuid)
-		 ORDER BY st.period_end DESC, o.brand LIMIT 50`, operatorID)
+		 -- Most recently worked on first, then by period.
+		 --
+		 -- This used to order by period_end alone, which quietly broke the
+		 -- screen once a database had accumulated a few hundred settlements:
+		 -- pressing Calculate on an older period reported success and then
+		 -- showed nothing, because the row it had just written sorted below a
+		 -- LIMIT of newer periods. A worklist has to show the thing you just
+		 -- did to it.
+		 ORDER BY st.calculated_at DESC NULLS LAST, st.period_end DESC, o.brand
+		 LIMIT 100`, operatorID)
 	out := []map[string]any{}
 	if err != nil {
 		return out

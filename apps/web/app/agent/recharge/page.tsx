@@ -6,7 +6,8 @@ import { can, sget, spost } from '@/lib/staff';
 import { useSession } from '@/components/StaffShell';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
-import { dateTimeOf } from '@/lib/format';
+import { useLang } from '@/components/LangProvider';
+import { STRINGS, type Key } from '@/lib/i18n';
 
 // Money entering the platform walks maker → checker. The agent says what they
 // sent; a different person in finance confirms it arrived. The database refuses
@@ -19,6 +20,7 @@ interface Recharge {
 }
 
 export default function RechargePage() {
+  const { t, fmt } = useLang();
   const session = useSession();
   const [rows, setRows] = useState<Recharge[]>([]);
   const [amount, setAmount] = useState('5000');
@@ -47,84 +49,86 @@ export default function RechargePage() {
         method,
         reference,
       });
-      setFlash('Recorded. Your balance moves when finance confirms the money arrived.');
+      setFlash(t('ag.rc.saved'));
       setReference('');
       load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'The recharge could not be recorded.');
+      setError(err instanceof ApiError ? err.message : t('ag.rc.fail'));
     } finally { setBusy(false); }
   };
-
 
   // Approval happens in the admin console, not here. An agent's own workspace
   // is not the place to sign off money entering their own account.
   const canRequest = can(session?.identity ?? null, 'wallet.recharge');
 
+  // Statuses come from the server in English. Where a translation exists it is
+  // used; where one does not, the server's own word is shown rather than a
+  // blank — a missing string must never hide the state of somebody's money.
+  const say = (k: string, fallback: string) =>
+    (k as Key) in STRINGS ? t(k as Key) : fallback;
+
   if (loading) return <Loading rows={2} />;
 
   return (
     <div className="stack">
-      <PageHead
-        title="Recharge"
-        sub="Send the money, record it here, and finance confirms it separately"
-      />
+      <PageHead title={t('ag.nav.recharge')} sub={t('ag.rc.sub')} />
 
       {error && <ErrorNotice message={error} />}
       {flash && <div className="notice notice-info">{flash}</div>}
 
       {canRequest && (
         <form className="card card-pad stack" style={{ maxWidth: 420 }} onSubmit={request}>
-          <h3>Record a payment you have sent</h3>
+          <h3>{t('ag.rc.formTitle')}</h3>
           <div className="field">
-            <label className="label" htmlFor="amt">Amount (৳)</label>
+            <label className="label" htmlFor="amt">{t('ag.rc.amount')}</label>
             <input id="amt" className="input tnum" type="number" min="1" step="1"
-                   value={amount} onChange={(e) => setAmount(e.target.value)} required />
+                   value={amount} onChange={(e) => setAmount(e.target.value)} required
+                   style={{ fontSize: '1.3rem' }} />
           </div>
           <div className="field">
-            <label className="label" htmlFor="mth">Sent by</label>
+            <label className="label" htmlFor="mth">{t('ag.rc.sentBy')}</label>
             <select id="mth" className="select" value={method} onChange={(e) => setMethod(e.target.value)}>
               <option value="BKASH">bKash</option>
               <option value="NAGAD">Nagad</option>
-              <option value="BANK">Bank transfer</option>
+              <option value="BANK">{t('ag.rc.bank')}</option>
             </select>
           </div>
           <div className="field">
-            <label className="label" htmlFor="ref">Transaction reference</label>
+            <label className="label" htmlFor="ref">{t('ag.rc.reference')}</label>
             <input id="ref" className="input mono" value={reference}
                    onChange={(e) => setReference(e.target.value)} placeholder="TRX…" required />
           </div>
-          <button className="btn btn-primary btn-block" type="submit" disabled={busy}>
-            {busy ? 'Recording…' : 'Record recharge'}
+          <button className="btn btn-primary btn-block btn-lg" type="submit"
+                  disabled={busy} data-act="record-recharge">
+            {busy ? t('ag.rc.saving') : t('ag.rc.submit')}
           </button>
-          <p className="small muted" style={{ marginBottom: 0 }}>
-            This does not add to your balance on its own. Nothing moves until a
-            second person in finance confirms the money landed.
-          </p>
+          <p className="small muted" style={{ marginBottom: 0 }}>{t('ag.rc.note')}</p>
         </form>
       )}
 
       <div>
-        <h3 style={{ marginBottom: '.5rem' }}>Recharge history</h3>
+        <h3 style={{ marginBottom: '.5rem' }}>{t('ag.rc.history')}</h3>
         <div className="table-wrap">
           <table className="data">
             <thead>
               <tr>
-                <th>Requested</th><th>Agency</th><th>Method</th><th>Reference</th>
-                <th className="num">Amount</th><th>Status</th><th>Requested by</th>
-                <th>Approved by</th>
+                <th>{t('ag.rc.requested')}</th><th>{t('ag.rc.agency')}</th>
+                <th>{t('ag.rc.method')}</th><th>{t('ag.rc.reference')}</th>
+                <th className="num">{t('ag.amount')}</th><th>{t('co.s.status')}</th>
+                <th>{t('ag.rc.by')}</th><th>{t('ag.rc.approvedBy')}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.recharge_id}>
-                  <td className="muted small">{dateTimeOf(r.created_at)}</td>
+                  <td className="muted small">{fmt.dateTime(r.created_at)}</td>
                   <td>{r.agency}</td>
-                  <td>{r.method}</td>
+                  <td>{r.method === 'BANK' ? t('ag.rc.bank') : r.method}</td>
                   <td className="mono small">{r.reference || '—'}</td>
                   <td className="num"><Money poisha={r.amount_poisha} /></td>
                   <td>
                     <span className={`pill ${r.status === 'APPROVED' ? 'pill-ok' : r.status === 'REJECTED' ? 'pill-danger' : 'pill-warn'}`}>
-                      {r.status.toLowerCase()}
+                      {say(`status.${r.status}`, r.status.toLowerCase())}
                     </span>
                   </td>
                   <td className="small">{r.requested_by}</td>
@@ -132,7 +136,7 @@ export default function RechargePage() {
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={8} className="muted center">No recharges yet.</td></tr>
+                <tr><td colSpan={8} className="muted center">{t('ag.rc.empty')}</td></tr>
               )}
             </tbody>
           </table>

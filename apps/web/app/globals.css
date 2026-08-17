@@ -1,24 +1,12 @@
 /* ---------------------------------------------------------------------------
-   Typefaces.
-
-   Bengali is set in Noto Sans Bengali — chosen because it is VARIABLE, so one
-   107 KB file carries every weight from 400 to 700. Hind Siliguri is the more
-   common choice in Bangladeshi products and reads well, but it ships a separate
-   file per weight; four weights across the Bengali and Latin ranges is twelve
-   requests against one. On the 4G this market actually runs on, that decides it.
-
-   The unicode-range is deliberately narrow. An English reader never downloads
-   the Bengali face at all, and a Bangla page falls back to the system Latin
-   stack for the figures and Latin words mixed into Bangla sentences — which is
-   most of them, because fares, seat numbers, times and PNRs all stay Latin.
---------------------------------------------------------------------------- */
-/* Typefaces are declared in app/fonts.ts via next/font/local, which self-hosts
+   Typefaces are declared in app/fonts.ts via next/font/local, which self-hosts
    them, fingerprints the URLs and generates metric-matched fallback faces so a
-   swap on a slow connection does not reflow the page. The families arrive here
-   as --font-bangla and --font-latin. */
+   swap on a slow connection does not reflow the page. Both are axis-clipped and
+   subset at build time by scripts/build-fonts.sh — 552 KB upstream to 198 KB
+   shipped. The families arrive here as --font-bangla and --font-latin.
+--------------------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------------------
-   Design tokens.
    BOARD & STUB.
 
    Two artefacts already govern this business and neither is software: the
@@ -289,7 +277,20 @@ a:hover { text-decoration: underline; }
 .grid-2  { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
 @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
 
-.page { padding: 1.5rem 0 4rem; }
+/*
+ * Vertical only, in longhand, and that matters.
+ *
+ * Thirty-six pages are written `<div class="page container">`. `.page` was
+ * `padding: 1.5rem 0 4rem` — a shorthand, so it also set padding-left and
+ * padding-right to 0, and because it is declared after `.container` at equal
+ * specificity it won. Every one of those pages has been rendering its heading
+ * and its cards hard against the edge of the phone, with the gutter the
+ * container exists to provide silently cancelled.
+ *
+ * Longhand here leaves the horizontal padding to whichever container is on the
+ * element, which is the whole point of putting two classes on it.
+ */
+.page { padding-top: 1.5rem; padding-bottom: 4rem; }
 .muted { color: var(--muted); }
 .small { font-size: .82rem; }
 .mono  { font-family: var(--mono); }
@@ -397,6 +398,33 @@ a:hover { text-decoration: underline; }
 .langswitch-opt:hover { color: #fff; }
 .langswitch-opt[aria-pressed='true'] { background: #fff; color: var(--field); }
 @media (max-width: 720px) { .langswitch-opt { padding: .3rem .5rem; font-size: .76rem; } }
+
+/*
+ * The same control on a light ground.
+ *
+ * The passenger version lives on the dark green header and is drawn in white;
+ * dropping it into the staff rail unchanged would have painted white-on-white.
+ * The pair is re-tinted rather than re-built, so it stays visibly the same
+ * control in both places — a clerk who has used the public site recognises it.
+ */
+.staff-lang { padding: 0 .4rem .75rem; }
+.staff-lang .langswitch {
+  width: 100%; border-color: var(--line); background: var(--surface-2);
+}
+.staff-lang .langswitch-opt { flex: 1; color: var(--muted); }
+.staff-lang .langswitch-opt:hover { color: var(--ink); }
+/*
+ * The selected half is filled with the workplace hue. In dark mode that hue is
+ * the LIGHT variant, so white text on it would be unreadable — the text colour
+ * has to flip with the theme even though the background token does not.
+ */
+.staff-lang .langswitch-opt[aria-pressed='true'] { background: var(--app); color: #fff; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .staff-lang .langswitch-opt[aria-pressed='true'] {
+    color: var(--ground);
+  }
+}
+:root[data-theme='dark'] .staff-lang .langswitch-opt[aria-pressed='true'] { color: var(--ground); }
 
 /* -------------------------------------------------------------------- card */
 .card {
@@ -528,14 +556,268 @@ a:hover { text-decoration: underline; }
 .step.active { color: var(--ink); font-weight: 620; }
 .step-line { width: 18px; height: 1px; background: var(--line-2); }
 
-/* -------------------------------------------------------------- trip cards */
-.trip { display: grid; grid-template-columns: 1fr auto; gap: 1rem; padding: 1rem 1.1rem; }
-@media (max-width: 700px) { .trip { grid-template-columns: 1fr; } }
-.trip-time { font-size: 1.22rem; font-weight: 680; letter-spacing: -.02em; }
-.trip-arrow { color: var(--muted); }
-.trip-price { font-size: 1.3rem; font-weight: 700; letter-spacing: -.02em; text-align: right; }
-.trip-right { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: .6rem; }
-@media (max-width: 700px) { .trip-right { align-items: stretch; } .trip-price { text-align: left; } }
+/* ------------------------------------------------------------- references
+   PNRs, tokens and transaction ids. A slashed zero because these get read
+   aloud down a phone line to a counter clerk, and 0 versus O is the mistake
+   that costs somebody their seat.
+--------------------------------------------------------------------------- */
+.ref {
+  font-family: var(--mono);
+  font-feature-settings: 'zero' 1;
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: .02em;
+  word-break: break-all;
+}
+.ref-copy {
+  position: relative; border: 0; background: none; padding: 0;
+  color: inherit; font-size: inherit; cursor: pointer; text-align: left;
+}
+.ref-copy:hover { text-decoration: underline; }
+.ref-said {
+  position: absolute; left: 0; top: 100%;
+  font-family: var(--sans); font-size: .72rem; color: var(--ok);
+  white-space: nowrap;
+}
+
+/* The confirmation mark. Three states, and the middle one is not a warning. */
+.verdict-mark {
+  width: 54px; height: 54px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 1.5rem; font-weight: 700; line-height: 1;
+}
+.verdict-mark.is-ok       { background: var(--ok-tint);       color: var(--ok); }
+.verdict-mark.is-inflight { background: var(--inflight-tint); color: var(--inflight); }
+.verdict-mark.is-bad      { background: var(--danger-tint);   color: var(--danger); }
+
+/* -------------------------------------------------------------- fare board
+   A counter's painted fare list, not four radio cards. Each row carries the
+   provider's own mark at a size that can be recognised without reading, and
+   repeats the amount — so the method and the money are never separated.
+--------------------------------------------------------------------------- */
+.fareboard { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .4rem; }
+.fareboard > legend { margin-bottom: .5rem; }
+
+.fare-plate {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center; gap: .75rem;
+  padding: .6rem .8rem; min-height: var(--touch);
+  background: var(--plate);
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  cursor: pointer;
+}
+.fare-plate:hover { border-color: var(--rule-strong); }
+/* Selection is a shape change and a field-green edge, not a tint — chrome
+   yellow stays the property of the single action at the bottom. */
+.fare-plate[data-selected="true"] {
+  border-color: var(--field);
+  box-shadow: inset 3px 0 0 var(--field);
+}
+.fare-mark {
+  display: grid; place-items: center;
+  min-width: 74px; height: 34px; padding: 0 .55rem;
+  border-radius: 3px;
+  font-family: var(--board); font-stretch: 88%;
+  font-weight: 750; font-size: .95rem; letter-spacing: .01em;
+  white-space: nowrap;
+}
+.fare-name { display: flex; flex-direction: column; min-width: 0; }
+.fare-amount {
+  font-variant-numeric: tabular-nums; font-weight: 700;
+  white-space: nowrap; color: var(--ink);
+}
+@media (max-width: 420px) {
+  /* The amount drops below the name rather than squeezing the mark. */
+  .fare-plate { grid-template-columns: auto auto minmax(0, 1fr); }
+  .fare-amount { grid-column: 3; text-align: right; }
+}
+
+/* ---------------------------------------------------------- checkout layout */
+.checkout-layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 1.25rem; align-items: start;
+}
+.checkout-aside { position: sticky; top: calc(var(--header-h) + 1rem); }
+.pax-set {
+  border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: .85rem;
+}
+.pax-set > legend { padding: 0 .4rem; color: var(--muted); }
+@media (max-width: 900px) {
+  .checkout-layout { grid-template-columns: 1fr; }
+  .checkout-aside { position: static; }
+}
+
+/* ------------------------------------------------------------- trip layout
+   The seat map and the running total. Replaces a hand-rolled inline grid plus
+   an injected <style> block carrying !important overrides.
+--------------------------------------------------------------------------- */
+.trip-layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 1.25rem; align-items: start;
+}
+.trip-aside { position: sticky; top: calc(var(--header-h) + 1rem); }
+@media (max-width: 900px) {
+  .trip-layout { grid-template-columns: 1fr; }
+  .trip-aside { position: static; }
+  .trip-holdnote { display: none; }
+}
+
+/* -------------------------------------------------------------- route rail
+   The whole route drawn as an unpainted line, with the leg being bought
+   repainted over it. This is segment inventory made visible: the stops outside
+   your leg stay on the line but hollow, so "the seat is free for YOUR part"
+   is a picture rather than a sentence.
+--------------------------------------------------------------------------- */
+.rail-h { display: flex; flex-direction: column; gap: .45rem; }
+.rail-h-line {
+  position: relative; height: 12px; margin: 0 6px;
+}
+.rail-h-line::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 5px;
+  height: 2px; background: var(--rule-strong);
+}
+/* The painted leg — thicker and in enamel green, drawn over the full run. */
+.rail-h-painted {
+  position: absolute; top: 3px; height: 6px;
+  background: var(--field); border-radius: 3px;
+}
+.rail-h-mark {
+  position: absolute; top: 2px; width: 8px; height: 8px; margin-left: -4px;
+  border-radius: 50%; background: var(--plate);
+  border: 2px solid var(--rule-strong);
+}
+.rail-h-mark.in-leg { background: var(--field); border-color: var(--field); }
+.rail-h-ends {
+  display: flex; justify-content: space-between; gap: .6rem;
+  font-size: .8rem; color: var(--ink-2); font-weight: 580;
+}
+
+/* Vertical below the fold and on narrow screens: Bangla stop names need the
+   horizontal room that a timeline down the page gives them. */
+.rail-v { list-style: none; margin: 0; padding: 0; }
+.rail-v-stop {
+  position: relative; display: flex; align-items: center; gap: .6rem;
+  padding: .35rem 0 .35rem 1.4rem;
+  color: var(--muted);
+}
+.rail-v-stop::before {
+  content: ''; position: absolute; left: 3px; top: 0; bottom: 0;
+  width: 2px; background: var(--rule-strong);
+}
+.rail-v-stop:first-child::before { top: 50%; }
+.rail-v-stop:last-child::before  { bottom: 50%; }
+.rail-v-stop.in-leg::before { background: var(--field); width: 4px; left: 2px; }
+.rail-v-mark {
+  position: absolute; left: 0; top: 50%; margin-top: -4px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--plate); border: 2px solid var(--rule-strong);
+}
+.rail-v-stop.in-leg .rail-v-mark { background: var(--field); border-color: var(--field); }
+.rail-v-stop.in-leg { color: var(--ink); }
+.rail-v-time { font-variant-numeric: tabular-nums; font-size: .84rem; }
+.rail-v-name { font-weight: 580; }
+.rail-v-stop.in-leg .rail-v-name { font-weight: 650; }
+
+/* --------------------------------------------------------------- day strip
+   Six days along the top of the results. Scrolls horizontally on a phone
+   rather than wrapping, because a row of dates that reflows to two lines
+   stops reading as a calendar.
+--------------------------------------------------------------------------- */
+.daystrip {
+  display: flex; gap: .4rem; margin-bottom: 1rem;
+  overflow-x: auto; scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.daystrip::-webkit-scrollbar { display: none; }
+.daystrip-day {
+  flex: 0 0 auto; min-width: 84px; min-height: var(--touch);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .1rem; padding: .4rem .7rem;
+  background: var(--plate); border: 1px solid var(--rule);
+  border-radius: var(--radius); color: var(--ink-2); text-decoration: none;
+}
+.daystrip-day:hover { text-decoration: none; border-color: var(--rule-strong); }
+.ds-label { font-size: .82rem; font-weight: 620; }
+.ds-date { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The selected day is the board's own painted plate, not a yellow fill —
+   chrome yellow belongs to the action, and the action here is a trip. */
+.daystrip-day[aria-current="page"] {
+  background: var(--field); border-color: var(--field); color: #fff;
+}
+.daystrip-day[aria-current="page"] .ds-date { color: rgba(255,255,255,.78); }
+
+/* ------------------------------------------------------------------- chips */
+.chipbar { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; align-items: center; }
+.chip {
+  font: inherit; font-size: .84rem; font-weight: 580;
+  min-height: 36px; padding: .3rem .8rem;
+  background: var(--plate); color: var(--ink-2);
+  border: 1px solid var(--rule-strong); border-radius: 999px;
+  cursor: pointer; white-space: nowrap;
+}
+.chip:hover { border-color: var(--ink-2); }
+.chip[aria-pressed="true"] {
+  background: var(--field); border-color: var(--field); color: #fff;
+}
+.chip-clear { border-style: dashed; color: var(--muted); }
+.chip-sep { width: 1px; height: 20px; background: var(--rule); margin: 0 .2rem; }
+@media (pointer: coarse) { .chip { min-height: 40px; } }
+
+/* --------------------------------------------------------------- board row
+   A departure board, not a stack of cards. The time sits in a fixed left
+   gutter that survives the mobile stack, so seven departures can be scanned
+   down a single column; money holds its own right-aligned tabular column for
+   the same reason. Both are the reason this is a grid and not a flex row.
+--------------------------------------------------------------------------- */
+.board-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) auto;
+  gap: 0 1.1rem;
+  padding: .9rem 1.1rem;
+  background: var(--plate);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+.board-row.is-gone { opacity: .62; }
+
+.br-when { display: flex; flex-direction: column; gap: .1rem; }
+.br-depart {
+  font-family: var(--board); font-stretch: 82%; font-weight: 750;
+  font-size: 1.5rem; line-height: 1.05; font-variant-numeric: tabular-nums;
+  color: var(--ink); letter-spacing: 0;
+}
+.br-dur { font-size: .76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.br-body { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.br-brand { font-size: 1rem; font-weight: 650; }
+.br-rail { display: flex; align-items: center; gap: .4rem; }
+.br-stops {
+  display: flex; justify-content: space-between; gap: .6rem;
+  font-size: .8rem; color: var(--muted); min-width: 0;
+}
+.br-stops > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.br-arrive { font-variant-numeric: tabular-nums; }
+
+.br-money { display: flex; flex-direction: column; align-items: flex-end; gap: .4rem; }
+.br-fare {
+  font-family: var(--board); font-stretch: 88%; font-weight: 750;
+  font-size: 1.42rem; line-height: 1.1; letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.br-perseat { font-size: .74rem; color: var(--muted); margin-top: -.28rem; }
+.br-cta { margin-top: .15rem; }
+
+@media (max-width: 700px) {
+  .board-row { grid-template-columns: 72px minmax(0, 1fr); gap: .5rem .9rem; }
+  /* Money moves under the body but stays inside the same right-hand column,
+     so the time gutter — the thing being scanned — keeps its alignment. */
+  .br-money {
+    grid-column: 2; align-items: stretch;
+    border-top: 1px solid var(--rule); padding-top: .6rem; margin-top: .2rem;
+  }
+  .br-fare, .br-perseat { text-align: left; }
+  .br-money .pill { align-self: flex-start; }
+}
 
 .amenity { font-size: .72rem; color: var(--muted); border: 1px solid var(--line); padding: .12rem .4rem; border-radius: 4px; }
 
@@ -604,7 +886,24 @@ a:hover { text-decoration: underline; }
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-2);
 }
-.ticket-head { background: var(--brand); color: #fff; padding: 1rem 1.15rem; }
+.ticket-head { background: var(--field); color: #fff; padding: 1rem 1.15rem; }
+/* The eyebrow carries hierarchy by weight rather than by case, because Bengali
+   has none and text-transform silently does nothing there. */
+.ticket-eyebrow { font-size: .74rem; opacity: .85; font-weight: 700; }
+:root:not([data-lang='bn']) .ticket-eyebrow { text-transform: uppercase; letter-spacing: .08em; }
+
+/* A voided ticket is overprinted, not captioned. This is the only case in the
+   system where colour is drawn across content, and it earns it: a cancelled
+   ticket held up at a bus door must be unmistakable at arm's length. */
+.ticket.is-void { position: relative; }
+.ticket.is-void::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--danger) 8%, transparent) 0 22px,
+    transparent 22px 64px
+  );
+}
 .ticket-body { padding: 1.15rem; display: grid; grid-template-columns: 1fr auto; gap: 1.25rem; }
 @media (max-width: 620px) { .ticket-body { grid-template-columns: 1fr; } }
 .ticket-perf {
@@ -656,14 +955,28 @@ table.data tr:last-child td { border-bottom: 0; }
    between a funnel and a form. On desktop the same information lives in the
    sidebar and this bar stands down.
 --------------------------------------------------------------------------- */
+/* Desktop placement: the foot of the aside, in normal flow. */
 .actionbar {
-  position: sticky; bottom: 0; z-index: 40;
+  position: relative; z-index: 40;
   display: flex; align-items: center; gap: .9rem;
-  padding: .7rem 1rem calc(.7rem + env(safe-area-inset-bottom, 0px));
-  margin: 1.25rem -1rem 0;
-  background: var(--surface);
-  border-top: 1px solid var(--line);
-  box-shadow: 0 -8px 24px -18px rgba(20,24,26,.5);
+  padding: .8rem 0 0;
+  margin-top: .4rem;
+  border-top: 1px solid var(--rule);
+  background: var(--plate);
+}
+/* Phone placement: the SAME node, lifted out of flow to the bottom of the
+   viewport. Moving it with CSS rather than rendering a second copy is what
+   keeps exactly one primary action on the page. */
+@media (max-width: 900px) {
+  .actionbar {
+    position: fixed; left: 0; right: 0; z-index: 56;
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+    margin: 0; padding: .7rem 1rem;
+    border-top: 1px solid var(--rule);
+    box-shadow: var(--shadow-2);
+  }
+  /* The funnel hides the tab bar, so the fascia sits on the floor there. */
+  .no-tabbar .actionbar { bottom: 0; padding-bottom: calc(.7rem + env(safe-area-inset-bottom, 0px)); }
 }
 .actionbar .ab-figures { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
 .actionbar .ab-total {
@@ -673,14 +986,28 @@ table.data tr:last-child td { border-bottom: 0; }
 .actionbar .ab-note {
   font-size: .76rem; color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; align-items: center; gap: .2rem;
 }
+.actionbar .countdown { font-size: .8rem; color: var(--ink-2); }
+.actionbar .countdown.urgent { color: var(--danger); font-weight: 700; }
 .actionbar .btn { margin-left: auto; flex: none; }
-@media (min-width: 860px) {
-  /* The sidebar already carries this on a wide screen; two copies of the total
-     is one copy too many. */
-  .actionbar { position: static; margin: 1rem 0 0; border-radius: var(--radius);
-               border: 1px solid var(--line); box-shadow: var(--shadow-1); }
-  .actionbar-mobile-only { display: none; }
+
+/* THE DRAINING RULE. The seat hold is a deadline the server owns, so it is
+   drawn as something physically running out rather than digits in a header the
+   passenger has already scrolled past. Anchored to the fascia's top edge, it
+   stays on screen for the whole of checkout.
+
+   This is the only thing in the system permitted to animate continuously, and
+   it earns that because it is reporting a real clock. */
+.drain {
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--mark); transform-origin: left center;
+  transition: transform 1s linear;
+}
+.drain.urgent { height: 5px; background: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  /* Stepped rather than swept: the information survives, the motion does not. */
+  .drain { transition: none; }
 }
 
 /* Bottom sheet — filters, fare breakdowns, seat details on a phone. */
@@ -730,13 +1057,29 @@ footer.site-footer {
    a clerk can tell at a glance which application is on the screen; the marigold
    accent stays reserved for the primary action, everywhere, in every app.
 --------------------------------------------------------------------------- */
+/*
+ * The workplace hue, resolved per theme.
+ *
+ * StaffShell hands down --app-light and --app-dark; the choice is made here
+ * because an inline style cannot answer a media query. Same three-state pattern
+ * the rest of the sheet uses: bare :root is light, the media query is guarded
+ * so an explicit light choice beats a dark OS, and the stamped attribute wins
+ * in both directions.
+ *
+ * The fallback matters: a workplace that forgets to declare a hue gets the
+ * brand rather than an unpainted rail.
+ */
 .staff {
-  --app: var(--brand);
+  --app: var(--app-light, var(--brand));
   display: grid;
   grid-template-columns: 236px minmax(0, 1fr);
   min-height: 100vh;
   background: var(--ground);
 }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .staff { --app: var(--app-dark, var(--brand)); }
+}
+:root[data-theme='dark'] .staff { --app: var(--app-dark, var(--brand)); }
 
 .staff-rail {
   position: sticky; top: 0; align-self: start;
@@ -777,6 +1120,51 @@ footer.site-footer {
   .staff-main { padding: 1rem; }
 }
 
+/* --------------------------------------------------------------- handheld --
+ *
+ * The Driver & Crew app is worked on a phone, one-handed, at the door of a bus,
+ * often in direct sun. The shared staff shell stacks its whole sidebar above the
+ * content on a narrow screen, so a helper scrolled past the brand, the language
+ * pair, their own name, their role chips and two buttons before reaching the
+ * passenger they were trying to board.
+ *
+ * Only the NAV moves. It is the same single element, repositioned by CSS to sit
+ * under the thumb — not a second copy, because two navigations in one document
+ * is how you end up with two "Board passengers" links and no idea which one a
+ * test or a person just pressed.
+ * ------------------------------------------------------------------------- */
+@media (max-width: 900px) {
+  .staff[data-handheld] .staff-nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 56;
+    flex-direction: row; gap: 0;
+    background: var(--surface); border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-shadow: var(--shadow-2);
+  }
+  .staff[data-handheld] .staff-nav a {
+    flex: 1; min-width: 0; text-align: center;
+    min-height: var(--touch); display: grid; place-items: center;
+    padding: .6rem .3rem; font-size: .82rem; border-radius: 0;
+  }
+  .staff[data-handheld] .staff-nav a[aria-current='page'] {
+    box-shadow: inset 0 2px 0 var(--app);
+  }
+  /* Room for the bar, plus whatever the phone's own gesture area claims. */
+  .staff[data-handheld] .staff-main {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+  .staff[data-handheld] .staff-rail { padding-bottom: .4rem; }
+
+  /*
+   * Bigger type and heavier rules throughout. This is the one workplace read at
+   * arm's length on a bright phone screen, where the difference between 0.82rem
+   * and 1rem is whether a seat number can be read at all.
+   */
+  .staff[data-handheld] { font-size: 1.04rem; }
+  .staff[data-handheld] .small { font-size: .88rem; }
+  .staff[data-handheld] .btn { min-height: var(--touch); }
+}
+
 /* metric tiles */
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .7rem; }
 .tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
@@ -805,6 +1193,17 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .verdict { border-radius: var(--radius); padding: 1rem 1.1rem; border: 1px solid var(--line);
            display: flex; gap: .9rem; align-items: center; }
 .verdict strong { font-size: 1.2rem; }
+/*
+ * On the boarding scanner the verdict is read at arm's length, in sunlight, in
+ * the half-second before the next passenger pushes forward — so the instruction
+ * and the seat number are the two things sized to be read, and the sentence
+ * explaining them is not.
+ */
+.staff[data-handheld] .verdict strong { font-size: 1.7rem; line-height: 1.15; }
+.verdict-seat {
+  font-family: var(--board); font-size: 1.35rem; font-weight: 700;
+  font-variant-numeric: tabular-nums; margin: .1rem 0 .25rem;
+}
 .verdict.ok   { background: var(--ok-tint); border-color: var(--ok); color: var(--ok); }
 .verdict.bad  { background: var(--danger-tint); border-color: var(--danger); color: var(--danger); }
 .verdict.warn { background: var(--warn-tint); border-color: var(--warn); color: var(--warn); }
@@ -818,6 +1217,54 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
   border: 2px solid var(--surface);
 }
 .timeline .t-src { font-family: var(--mono); font-size: .72rem; color: var(--muted); }
+
+/* ------------------------------------------------------- the counter window */
+
+/*
+ * A clerk facing a queue does not reach for the mouse, so the keys this screen
+ * answers to are printed on it rather than left to be discovered. Stating them
+ * costs one quiet line; not stating them means every clerk works the slow way
+ * forever, because nobody guesses a shortcut that was never mentioned.
+ */
+.keyhints {
+  display: flex; flex-wrap: wrap; gap: .1rem .9rem; align-items: center;
+  margin-top: .7rem; padding-top: .6rem; border-top: 1px solid var(--line);
+  font-size: .76rem; color: var(--muted);
+}
+.keyhints .k-label {
+  text-transform: uppercase; letter-spacing: .07em; font-weight: 700; font-size: .68rem;
+}
+:root[data-lang='bn'] .keyhints .k-label { text-transform: none; letter-spacing: normal; }
+
+.keycap {
+  display: inline-grid; place-items: center; min-width: 20px; height: 20px;
+  padding: 0 4px; border: 1px solid var(--rule-strong); border-bottom-width: 2px;
+  border-radius: 3px; background: var(--surface-2);
+  font-family: var(--mono); font-size: .72rem; font-weight: 700; color: var(--ink-2);
+}
+
+/*
+ * Change due. The clerk is subtracting in their head against a queue, and a
+ * wrong subtraction is a drawer that will not balance at close plus an argument
+ * at the window — so the figure is given the same weight as the total.
+ */
+.changeline {
+  display: flex; align-items: baseline; justify-content: space-between; gap: .6rem;
+  margin-top: .4rem; padding: .5rem .7rem; border-radius: var(--radius-sm);
+  background: var(--ok-tint); color: var(--ok);
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+.changeline strong { font-family: var(--board); font-size: 1.25rem; }
+
+/*
+ * The departure time on a crew card. The one thing a driver looks for first,
+ * so it is set at board size and nothing on the card competes with it.
+ */
+.crew-when { display: flex; align-items: baseline; gap: .5rem; }
+.crew-when strong {
+  font-family: var(--board); font-size: 1.6rem; font-weight: 700;
+  letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1;
+}
 
 /* the offline banner in the POS */
 .offline-bar {
@@ -836,3 +1283,238 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
   border-radius: var(--radius-sm); color: var(--ink-2); font: inherit; font-size: .8rem;
 }
 .demo-list button:hover { background: var(--surface-2); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AFTER THE TICKET
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Everything a passenger touches once they already hold a ticket: finding a
+   booking, changing it, cancelling it, watching the bus.
+
+   The person on these screens is not the person in the funnel. They are often
+   standing up, often on a bus, often worried, and frequently they are not the
+   person who did the booking — it is a son who booked for a mother now holding
+   the phone. So:
+
+     - one action per row, at full touch height, with the consequence written
+       underneath it rather than implied by an icon;
+     - no table a reader has to locate themselves in — the row that applies to
+       them is marked, because the platform already knows which row that is;
+     - no vocabulary that exists only because of how the system was built. The
+       words on the printed ticket are "ticket number"; PNR appears once, small,
+       to reconcile the two.
+   ------------------------------------------------------------------------- */
+
+/* --- one choice, stated in a sentence ------------------------------------ */
+
+.pick {
+  display: flex; align-items: center; gap: .85rem; width: 100%;
+  min-height: var(--touch); padding: .85rem 1rem; text-align: left;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); color: var(--ink); cursor: pointer;
+  font: inherit; transition: border-color .12s, background .12s;
+}
+.pick:hover:not(:disabled) {
+  border-color: var(--rule-strong); background: var(--surface-2); text-decoration: none;
+}
+.pick:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.pick:disabled, .pick[aria-disabled='true'] { opacity: .45; cursor: not-allowed; }
+.pick-glyph {
+  flex: none; width: 38px; height: 38px; display: grid; place-items: center;
+  border-radius: var(--radius-sm); background: var(--field-tint); color: var(--field);
+}
+.pick-glyph svg { width: 20px; height: 20px; display: block; }
+.pick-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: .1rem; }
+.pick-title { font-weight: 640; }
+.pick-note { font-size: .8rem; color: var(--muted); }
+.pick-end { flex: none; margin-left: auto; text-align: right; }
+.pick > svg { flex: none; color: var(--rule-strong); }
+.pick.is-chosen {
+  border-color: var(--field); background: var(--field-tint);
+  box-shadow: inset 3px 0 0 var(--field);
+}
+.pick.is-danger .pick-glyph { background: var(--danger-tint); color: var(--danger); }
+
+/* --- the ticket number --------------------------------------------------- */
+
+/*
+ * Six characters read off a piece of paper or a text message, typed by someone
+ * who is not confident typing. It gets the size of a number plate, tracking
+ * wide enough that adjacent characters cannot be misread, and a slashed zero —
+ * telling 0 from O is the entire job here.
+ */
+.numplate {
+  font-family: var(--mono); font-feature-settings: 'zero' 1;
+  font-size: 1.55rem; font-weight: 700; letter-spacing: .3em; text-indent: .3em;
+  text-align: center; text-transform: uppercase;
+  padding: .7rem .5rem; min-height: 62px;
+}
+.numplate::placeholder { font-weight: 400; opacity: .4; }
+
+/* Where the number lives, drawn rather than described. */
+.stub-hint {
+  border: 1px dashed var(--rule-strong); border-radius: var(--radius);
+  padding: .75rem .85rem; background: var(--surface-2);
+  display: flex; gap: .85rem; align-items: center;
+}
+.stub-mini {
+  flex: none; width: 86px; border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-sm); background: var(--surface); overflow: hidden;
+  padding-bottom: .35rem;
+}
+.stub-mini b {
+  display: block; background: var(--field); color: #fff;
+  font-family: var(--mono); font-size: .6rem; letter-spacing: .14em;
+  text-align: center; padding: .22rem 0; font-weight: 700;
+}
+.stub-mini i { display: block; height: 3px; background: var(--rule); margin: .3rem .32rem; border-radius: 2px; }
+.stub-mini i:nth-of-type(2) { width: 58%; }
+.stub-mini i:nth-of-type(3) { width: 38%; }
+
+/* --- the refund ladder ---------------------------------------------------- */
+
+/*
+ * This replaces a four-row policy table. A table asks the reader to work out
+ * which row they are standing in; the platform already knows, so it says so.
+ * The other rows stay on screen because someone deciding whether to cancel now
+ * or sleep on it needs to see what waiting costs them.
+ */
+.ladder {
+  display: flex; flex-direction: column; gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+}
+.ladder-rung {
+  display: flex; align-items: baseline; gap: .7rem; padding: .6rem .85rem;
+  background: var(--surface); font-size: .88rem;
+}
+.ladder-rung .r-when { color: var(--muted); flex: 1; min-width: 0; }
+.ladder-rung .r-gets { font-weight: 660; font-variant-numeric: tabular-nums; }
+.ladder-rung.is-here {
+  background: var(--field-tint); box-shadow: inset 3px 0 0 var(--field);
+  padding-left: calc(.85rem - 3px);
+}
+.ladder-rung.is-here .r-when { color: var(--field); font-weight: 620; }
+.ladder-rung.is-here .r-gets { color: var(--field); }
+.ladder-rung.is-gone { opacity: .45; }
+.ladder-tag {
+  font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+  background: var(--field); color: #fff; padding: .12rem .4rem;
+  border-radius: var(--radius-sm); flex: none;
+}
+:root[data-lang='bn'] .ladder-tag { text-transform: none; letter-spacing: normal; font-size: .74rem; }
+
+/* --- the money, said once, in words -------------------------------------- */
+
+.moneyline { display: flex; flex-direction: column; gap: .15rem; }
+.moneyline .m-what { font-size: .82rem; color: var(--muted); }
+.moneyline .m-amount {
+  font-family: var(--board); font-size: 1.85rem; font-weight: 700;
+  letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15;
+}
+.moneyline.is-back .m-amount { color: var(--ok); }
+.moneyline.is-nil  .m-amount { color: var(--muted); font-size: 1.25rem; }
+
+/* --- a tab strip that survives six labels in Bangla ----------------------- */
+
+.tabstrip {
+  display: flex; gap: .3rem; overflow-x: auto; scrollbar-width: none;
+  border-bottom: 1px solid var(--line); margin: 1rem 0 1.1rem;
+  -webkit-overflow-scrolling: touch;
+}
+.tabstrip::-webkit-scrollbar { display: none; }
+.tabstrip button {
+  flex: none; background: none; border: 0; cursor: pointer; font: inherit;
+  padding: .6rem .75rem; color: var(--muted); font-weight: 560;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap;
+}
+.tabstrip button:hover { color: var(--ink-2); }
+.tabstrip button[aria-selected='true'] {
+  color: var(--ink); font-weight: 680; border-bottom-color: var(--mark);
+}
+.tabstrip .t-count { font-variant-numeric: tabular-nums; font-size: .78rem; color: var(--muted); margin-left: .3rem; }
+
+/* --- questions and answers ------------------------------------------------ */
+
+.support-layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 1.5rem; align-items: start; margin-top: 1.25rem;
+}
+@media (max-width: 860px) { .support-layout { grid-template-columns: 1fr; } }
+
+.qa { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.qa + .qa { margin-top: .5rem; }
+.qa > summary {
+  cursor: pointer; padding: .9rem 1.1rem; font-weight: 620; list-style: none;
+  display: flex; align-items: flex-start; gap: .7rem; min-height: var(--touch);
+}
+.qa > summary::-webkit-details-marker { display: none; }
+.qa > summary::after {
+  content: ''; flex: none; margin-left: auto; margin-top: .32rem;
+  width: 8px; height: 8px; border-right: 2px solid var(--rule-strong);
+  border-bottom: 2px solid var(--rule-strong); transform: rotate(45deg);
+  transition: transform .15s;
+}
+.qa[open] > summary::after { transform: rotate(-135deg); }
+.qa[open] > summary { border-bottom: 1px solid var(--line); }
+.qa .qa-body { padding: .9rem 1.1rem; color: var(--ink-2); }
+.qa .qa-body p:last-child { margin-bottom: 0; }
+@media (prefers-reduced-motion: reduce) { .qa > summary::after { transition: none; } }
+
+/* --- the journey, drawn down the page ------------------------------------- */
+
+/*
+ * The only place a passenger sees the whole route with their own position in
+ * it. The spine is painted for the distance already travelled rather than left
+ * uniform with a separate "passed" label on every row — the same move the route
+ * rail makes on the trip page, so the two read as one system.
+ */
+.journey { list-style: none; margin: 0; padding: 0; }
+.journey li {
+  display: grid; grid-template-columns: 22px 54px 1fr auto;
+  align-items: center; gap: .6rem; padding: .5rem 0; position: relative;
+}
+.journey .j-spine {
+  position: absolute; left: 10px; top: 0; width: 2px; height: 100%;
+  background: var(--line);
+}
+.journey li:first-child .j-spine { top: 50%; height: 50%; }
+.journey li:last-child  .j-spine { height: 50%; }
+.journey li.is-past .j-spine { background: var(--field); }
+.journey .j-dot {
+  grid-column: 1; justify-self: center; position: relative; z-index: 1;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--surface); border: 2px solid var(--line-2);
+}
+.journey li.is-past .j-dot { background: var(--field); border-color: var(--field); }
+.journey li.is-now .j-dot {
+  background: var(--mark); border-color: var(--mark); width: 15px; height: 15px;
+  box-shadow: 0 0 0 4px var(--mark-tint);
+}
+.journey .j-time { grid-column: 2; font-variant-numeric: tabular-nums; font-size: .84rem; color: var(--muted); }
+.journey .j-name { grid-column: 3; min-width: 0; }
+.journey li.is-past .j-name { color: var(--muted); }
+.journey li.is-now  .j-name { font-weight: 680; }
+
+/* --- offers as coupons, not cards ----------------------------------------- */
+
+.coupon {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.coupon-head {
+  background: var(--field); color: #fff; padding: .7rem .9rem;
+  display: flex; align-items: baseline; justify-content: space-between; gap: .6rem;
+}
+.coupon-off { font-family: var(--board); font-size: 1.3rem; font-weight: 700; letter-spacing: -.01em; }
+.coupon-ends { font-size: .76rem; opacity: .85; }
+.coupon-body { padding: .9rem; display: flex; flex-direction: column; gap: .45rem; flex: 1; }
+.coupon-terms { margin: 0; padding-left: 1.05rem; font-size: .8rem; color: var(--muted); }
+.coupon-tear {
+  border-top: 1px dashed var(--rule-strong); margin: auto -.9rem 0; padding: .75rem .9rem 0;
+  display: flex; align-items: center; justify-content: space-between; gap: .6rem;
+}
+.coupon-code {
+  font-family: var(--mono); font-feature-settings: 'zero' 1; font-weight: 700;
+  font-size: 1.05rem; letter-spacing: .12em; color: var(--ink);
+}

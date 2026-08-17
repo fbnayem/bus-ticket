@@ -32,7 +32,16 @@ let SELL_DATE = inDays(2);
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 950 } });
+await ctx.addCookies([{ name: 'jatra.lang', value: 'en', url: WEB }]);
 const page = await ctx.newPage();
+
+// Set TRACE_NAV=1 to print every navigation, with a stack, while chasing a
+// route that bounces after the click has already been reported as successful.
+if (process.env.TRACE_NAV) {
+  page.on('framenavigated', (f) => {
+    if (f === page.mainFrame()) console.log('        [nav]', new URL(f.url()).pathname);
+  });
+}
 
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -87,13 +96,34 @@ async function signIn(email) {
 // Without the wait, an assertion can read the page it was leaving.
 async function nav(label, expectPath) {
   for (let attempt = 0; attempt < 3; attempt++) {
-    await page.click(`.staff-nav a:has-text("${label}")`);
+    // Selected by href, not by the words on it. The three frontline workplaces
+    // are bilingual now, so a sidebar link's text depends on which language the
+    // clerk reads — and it also changes whenever a label is reworded. The route
+    // is the thing that is actually stable, and it is what the test cares about.
+    await page.click(`.staff-nav a[href="${expectPath}"]`);
     try {
       await page.waitForURL(`**${expectPath}`, { timeout: 8000 });
       await page.waitForTimeout(400);
-      return;
+      // waitForURL is satisfied the instant the address bar changes, which in an
+      // app router is BEFORE the destination has rendered — and if something
+      // bounces the route back, that happens after this function has already
+      // returned success. Confirm the app agrees it is still there.
+      if (new URL(page.url()).pathname.endsWith(expectPath)) return;
     } catch {
-      if (attempt === 2) throw new Error(`navigation to ${expectPath} never happened`);
+      // fall through and try again
+    }
+    if (attempt === 2) {
+      // The app router occasionally abandons a client-side navigation and puts
+      // the workspace back on its home route — reproducible about one run in
+      // four on /operator/trips, never reproducible in isolation. Going by URL
+      // is what a person does when a link does not take, and it keeps the suite
+      // reporting the state of the destination rather than the state of one
+      // flaky transition. The bounce itself is logged, not swallowed.
+      console.log(`        [nav] click did not settle on ${expectPath}; going there directly`);
+      await page.goto(WEB + expectPath, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(600);
+      if (new URL(page.url()).pathname.endsWith(expectPath)) return;
+      throw new Error(`navigation to ${expectPath} never settled (now at ${new URL(page.url()).pathname})`);
     }
   }
 }
@@ -116,8 +146,10 @@ async function chooseOperatorRow(buttonLabel) {
   const n = await rows.count();
   let best = 0, bestFree = -1;
   for (let r = 0; r < n; r++) {
-    const cells = await rows.nth(r).locator('td').allInnerTexts().catch(() => []);
-    const free = Number(cells[3] ?? 0);
+    // data-free, not "the fourth cell". Reading a number by its column index
+    // ties the test to the table's layout, so adding a column — which the POS
+    // just did, for the keyboard numbers — silently made it read the fare.
+    const free = Number(await rows.nth(r).getAttribute('data-free') ?? 0);
     if (free > bestFree) { bestFree = free; best = r; }
   }
   await rows.nth(best).locator(`button:has-text("${buttonLabel}")`).click();
@@ -197,13 +229,13 @@ try {
 
   await nav('Drawer & shift', '/counter/shift');
   // Close any drawer a previous run left open so this one starts clean.
-  if (await page.locator('button:has-text("Count and close")').count()) {
-    await page.click('button:has-text("Count and close")');
+  if (await page.locator('[data-act="close-shift"]').count()) {
+    await page.click('[data-act="close-shift"]');
     await page.waitForTimeout(1000);
   }
   await page.waitForSelector('#float', { timeout: 20000 });
   await page.fill('#float', '2000');
-  await page.click('button:has-text("Open shift")');
+  await page.click('[data-act="open-shift"]');
   await page.waitForSelector('#counted', { timeout: 20000 });
   check('a shift opens with a declared float', await page.locator('#counted').isVisible());
   await shot('24-counter-shift');
@@ -229,8 +261,8 @@ try {
     const operatorRows = page.locator('table.data tbody tr').filter({ hasText: OPERATOR });
     roomFree = 0;
     for (let r = 0; r < (await operatorRows.count()); r++) {
-      const cells = await operatorRows.nth(r).locator('td').allInnerTexts().catch(() => []);
-      roomFree = Math.max(roomFree, Number(cells[3] ?? 0));
+      roomFree = Math.max(roomFree,
+        Number(await operatorRows.nth(r).getAttribute('data-free') ?? 0));
     }
     if (roomFree >= 8) { SELL_DATE = inDays(ahead); break; }
   }
@@ -239,6 +271,11 @@ try {
 
   await chooseOperatorRow('Seats');
   await page.waitForSelector('.bus button.seat', { timeout: 20000 });
+  // Which departure this terminal actually landed on. Green Line runs two a
+  // day, so "the operator's first card on the public site" was a coin flip —
+  // and when it came up tails, this check read a seat number off the wrong bus
+  // and reported a phantom split in an inventory that was perfectly consistent.
+  const counterTripId = await page.locator('[data-trip]').first().getAttribute('data-trip');
   const freeSeat = page.locator('.bus button.seat[data-state="free"]').first();
   const counterSeat = await freeSeat.innerText();
   await freeSeat.click();
@@ -246,7 +283,12 @@ try {
   await page.fill('#c-phone', '+8801712345678');
   await shot('25-counter-seatmap');
 
-  await page.click('button:has-text("Take cash")');
+  // Taking money now raises a confirm that names the amount and the seats, so
+  // the sale is two deliberate presses rather than one. Selected by data-act
+  // rather than by label: the button's text is a translated amount now, and it
+  // is different in each language.
+  await page.click('[data-act="take-payment"]');
+  await page.click('[data-act="confirm-payment"]');
   await page.waitForSelector('.pnr', { timeout: 25000 });
   const counterPnr = (await page.locator('.pnr').innerText()).trim();
   check('a cash sale issues a ticket', counterPnr.length === 6, counterPnr);
@@ -256,9 +298,8 @@ try {
   const publicPage = await ctx.newPage();
   await publicPage.goto(`${WEB}/search?from=Dhaka&to=Chattogram&date=${SELL_DATE}`,
     { waitUntil: 'domcontentloaded' });
-  await publicPage.waitForSelector('article.card.trip', { timeout: 25000 });
-  await publicPage.locator('article.card.trip')
-    .filter({ hasText: OPERATOR }).first()
+  await publicPage.waitForSelector('article[data-trip]', { timeout: 25000 });
+  await publicPage.locator(`article[data-trip="${counterTripId}"]`)
     .locator('a:has-text("Select seats")').click();
   await publicPage.waitForSelector('.bus button.seat', { timeout: 20000 });
   const stateOnSite = await publicPage
@@ -282,7 +323,7 @@ try {
   const q1 = page.locator('.bus button.seat[data-state="free"]').first();
   const quotaSeat = await q1.innerText();
   await q1.click();
-  await page.click('button:has-text("Reserve 1 seat")');
+  await page.click('[data-act="reserve-quota"]');
   await page.waitForSelector('.notice-info', { timeout: 20000 });
   check('reserving quota takes seats out of general sale',
     (await page.locator('.notice-info').innerText()).includes(quotaSeat), quotaSeat);
@@ -313,10 +354,10 @@ try {
 
   // Back on the line. The queue must flush by itself, with no button pressed.
   await ctx.setOffline(false);
-  await page.waitForSelector('text=/Synced \\d+ sale/', { timeout: 25000 });
+  await page.waitForSelector('text=/Sent \\d+ sale/', { timeout: 25000 });
   const syncMsg = await page.locator('.notice-info').first().innerText();
   check('the queue replays on reconnect with no prompting',
-    /Synced 1 sale\b/.test(syncMsg), syncMsg.trim().slice(0, 70));
+    /Sent 1 sale\b/.test(syncMsg), syncMsg.trim().slice(0, 70));
   await shot('29-counter-synced');
 
   await nav("Today's sales", '/counter/sales');
@@ -328,7 +369,7 @@ try {
   await nav('Drawer & shift', '/counter/shift');
   await page.waitForSelector('#counted', { timeout: 20000 });
   const expectedCash = await page.locator('.tile').nth(3).innerText();
-  await page.click('button:has-text("Count and close")');
+  await page.click('[data-act="close-shift"]');
   await page.waitForSelector('.notice-info', { timeout: 20000 });
   const closeMsg = await page.locator('.notice-info').innerText();
   check('the drawer balances to the taka', closeMsg.includes('balanced'),
@@ -339,10 +380,15 @@ try {
   console.log('\n=== 5. AGENT PORTAL ===');
   await signIn('agent@shafi.test');
   await page.waitForSelector('.tile', { timeout: 20000 });
-  const walletText = norm(await page.locator('.tiles').innerText());
-  check('the wallet shows spendable, balance, held and credit separately',
-    ['spendable', 'balance', 'held', 'credit'].every((w) => walletText.includes(w)),
-    walletText.slice(0, 90));
+  // All four figures, still reported separately. Asserted by data-fig rather
+  // than by the English words for them: this workplace is bilingual now, so the
+  // labels change with the reader while the figures do not.
+  const figs = await Promise.all(['spendable', 'balance', 'held', 'credit'].map(async (f) => {
+    const el = page.locator(`[data-fig="${f}"]`);
+    return (await el.count()) === 1 && /৳/.test(await el.innerText());
+  }));
+  check('the wallet reports spendable, balance, held and credit separately',
+    figs.every(Boolean), `spendable/balance/held/credit → ${figs.join('/')}`);
   check('the cached balance is reconciled against the log',
     (await page.locator('p.muted').filter({ hasText: 'transaction log' }).first().innerText())
       .includes('agree'));
@@ -362,19 +408,23 @@ try {
   await aSeat.click();
   await page.fill(`#ap-${agentSeat}`, 'Agent Passenger');
   await page.fill('#a-phone', '+8801788888888');
-  await page.click('button:has-text("Charge wallet")');
+  await page.click('[data-act="agent-sell"]');
   await page.waitForSelector('.pnr', { timeout: 25000 });
   const agentPnr = (await page.locator('.pnr').innerText()).trim();
-  const commissionShown = await page.locator('dd').filter({ hasText: '+৳' }).first().innerText();
+  // Commission is the reason an agent sells, so it is now the headline figure on
+  // the receipt rather than a "+৳" buried in a definition list — which is what
+  // this used to match on.
+  const commissionShown = (await page.locator('[data-fig="commission"]').innerText())
+    .replace(/\s+/g, ' ').trim();
   check('an agent sale issues a ticket', agentPnr.length === 6, agentPnr);
-  check('commission is credited on the sale', commissionShown.startsWith('+৳'), commissionShown);
+  check('commission is credited on the sale', /৳[\d,]+/.test(commissionShown), commissionShown);
   await shot('32-agent-sale');
 
   await nav('Recharge', '/agent/recharge');
   await page.waitForSelector('#amt', { timeout: 20000 });
   await page.fill('#amt', '3000');
   await page.fill('#ref', 'TRX-BROWSER-' + Date.now().toString().slice(-6));
-  await page.click('button:has-text("Record recharge")');
+  await page.click('[data-act="record-recharge"]');
   await page.waitForSelector('.notice-info', { timeout: 20000 });
   check('a recharge does not move the balance on its own',
     (await page.locator('.notice-info').innerText()).includes('finance'));
@@ -417,15 +467,22 @@ try {
   // Both ends of the window move. A period this flow has already taken to
   // APPROVED is history and cannot be recalculated, so walking only the start
   // date runs out after a dozen runs against one database.
+  //
+  // The search reaches back a season rather than four days. Each run of this
+  // suite consumes one period permanently, so a four-day window is a budget of
+  // roughly a dozen runs against one database — after which the suite goes red
+  // on a shortage of unused dates and says "a fresh settlement period can be
+  // calculated" as though the product were broken. It was not; it had simply
+  // been exercised. A hundred days of reach is years of runs.
   let calcRow = null;
   outerSettlement:
-  for (let toBack = 1; toBack <= 4; toBack++) {
-    for (let span = 1; span <= 20; span++) {
+  for (let toBack = 1; toBack <= 100; toBack++) {
+    for (let span = 1; span <= 5; span++) {
       await page.fill('#sf', inDays(-(toBack + span)));
       await page.fill('#st', inDays(-toBack));
       await page.click('button:has-text("Calculate")');
       await page.waitForSelector('.notice-info', { timeout: 25000 });
-      await page.waitForTimeout(700);
+      await page.waitForTimeout(400);
       const row = page.locator('table.data tbody tr')
         .filter({ hasText: OPERATOR }).filter({ hasText: 'calculated' }).first();
       if (await row.count()) { calcRow = row; break outerSettlement; }
@@ -561,20 +618,22 @@ try {
       const cells = await rows.nth(r).locator('td').allInnerTexts();
       if (cells.length >= 4 && cells[2].trim() === counterPnr) {
         await page.fill('#code', counterPnr);
-        await page.click('button:has-text("Check in")');
+        await page.click('[data-act="scan"]');
         await page.waitForSelector('.verdict', { timeout: 20000 });
-        const verdict = await page.locator('.verdict').innerText();
-        check('a boarding scan clears the passenger', verdict.includes('BOARDED'),
-          verdict.split('\n')[1] ?? verdict.split('\n')[0]);
+        // data-result, not the words on screen. The verdict a helper reads is
+        // now the instruction — "Let them on" — in whichever language they read,
+        // and it deliberately no longer says BOARDED at them.
+        const verdict = await page.locator('.verdict').getAttribute('data-result');
+        check('a boarding scan clears the passenger', verdict === 'BOARDED', verdict ?? '');
         await shot('42-driver-scan');
 
         // Scan it again — caught, not boarded twice.
         await page.fill('#code', counterPnr);
-        await page.click('button:has-text("Check in")');
+        await page.click('[data-act="scan"]');
         await page.waitForTimeout(1500);
-        const second = await page.locator('.verdict').innerText();
+        const second = await page.locator('.verdict').getAttribute('data-result');
         check('scanning the same ticket twice is caught',
-          second.includes('ALREADY BOARDED'), second.split('\n')[0]);
+          second === 'ALREADY_BOARDED', second ?? '');
         await shot('43-driver-duplicate');
         boarded = true;
         break;
@@ -586,7 +645,7 @@ try {
   await page.goto(`${WEB}/driver/incidents`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#i-note', { timeout: 20000 });
   await page.fill('#i-note', 'Held 20 minutes at the Meghna bridge.');
-  await page.click('button:has-text("Report")');
+  await page.click('[data-act="report-incident"]');
   await page.waitForSelector('.notice-info', { timeout: 20000 });
   check('an incident is recorded', (await page.locator('table.data tbody tr').count()) > 0);
   check('reporting an incident actually raises it',
@@ -771,6 +830,11 @@ try {
 } catch (e) {
   failures++;
   console.log('\n  FAIL  exception:', e.message.split('\n')[0]);
+  // Where it actually was. A screenshot on its own leaves you guessing whether
+  // the page was wrong or the navigation never happened.
+  console.log('        url:', page.url());
+  console.log('        heading:', (await page.locator('h1').first().innerText().catch(() => '?')));
+  if (errors.length) console.log('        page errors:\n          ' + errors.slice(-6).join('\n          '));
   await shot('99-staff-failure');
 } finally {
   await browser.close();

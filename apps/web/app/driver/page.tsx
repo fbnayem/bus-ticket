@@ -6,13 +6,18 @@ import { ApiError } from '@/lib/api';
 import { sget, spost } from '@/lib/staff';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Bar } from '@/components/staff-ui';
-import { dateOf, timeOf } from '@/lib/format';
+import { useLang } from '@/components/LangProvider';
+import { STRINGS, type Key } from '@/lib/i18n';
 
 // The driver's trips.
 //
 // Crew can move a trip through the states they are actually in a position to
 // observe — boarding started, we have left, we have arrived. Cancelling a trip
 // is an office decision and the server refuses it from here.
+//
+// Read on a phone, one-handed, often in sunlight, by someone who is also
+// managing a queue of passengers at a bus door. So: one card per trip, the
+// departure time as the biggest thing on it, and every button a verb.
 
 interface Trip {
   trip_id: string; depart_at: string; status: string; route: string;
@@ -25,6 +30,7 @@ const CREW_NEXT: Record<string, string> = {
 };
 
 export default function DriverTripsPage() {
+  const { t, fmt } = useLang();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [error, setError] = useState('');
   const [flash, setFlash] = useState('');
@@ -40,13 +46,17 @@ export default function DriverTripsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const advance = async (t: Trip) => {
-    const next = CREW_NEXT[t.status];
+  /** A catalogue string if we have one, the server's own word if we do not. */
+  const say = (key: string, fallback: string) =>
+    (key as Key) in STRINGS ? t(key as Key) : fallback;
+
+  const advance = async (tr: Trip) => {
+    const next = CREW_NEXT[tr.status];
     if (!next) return;
     setError('');
     try {
-      await spost(`/driver/trips/${t.trip_id}/status`, { status: next });
-      setFlash(`Marked ${next.replace(/_/g, ' ').toLowerCase()}.`);
+      await spost(`/driver/trips/${tr.trip_id}/status`, { status: next });
+      setFlash(say(`dr.done.${next}`, next.replace(/_/g, ' ').toLowerCase()));
       load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'That could not be recorded.');
@@ -55,26 +65,26 @@ export default function DriverTripsPage() {
 
   // Sharing position is what turns the passenger's tracking page from "estimated
   // from the timetable" into a real fix. It is opt-in per trip, on purpose.
-  const shareLocation = (t: Trip) => {
+  const shareLocation = (tr: Trip) => {
     if (!navigator.geolocation) {
-      setError('This device cannot report its position.');
+      setError(t('dr.noGeo'));
       return;
     }
-    setSharing(t.trip_id);
+    setSharing(tr.trip_id);
     const send = (lat: number, lng: number, speed: number) =>
-      spost(`/driver/trips/${t.trip_id}/position`, {
+      spost(`/driver/trips/${tr.trip_id}/position`, {
         lat, lng, speed_kph: Math.round(speed * 3.6), heading: 0,
       }).catch(() => {});
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         void send(pos.coords.latitude, pos.coords.longitude, pos.coords.speed ?? 0);
-        setFlash('Position shared. Passengers on this trip now see a real fix instead of an estimate.');
+        setFlash(t('dr.shared'));
         setSharing(null);
       },
       () => {
         // No GPS permission, no invented position. Say so.
-        setError('Location was refused, so nothing was sent. Passengers keep seeing the timetable estimate.');
+        setError(t('dr.shareRefused'));
         setSharing(null);
       },
       { enableHighAccuracy: true, timeout: 8000 },
@@ -85,53 +95,72 @@ export default function DriverTripsPage() {
 
   return (
     <div className="stack">
-      <PageHead title="My trips" sub="Today and the next two days" />
+      <PageHead title={t('dr.myTrips')} sub={t('dr.nextDays')} />
       {error && <ErrorNotice message={error} />}
-      {flash && <div className="notice notice-info">{flash}</div>}
+      {flash && <div className="notice notice-info" role="status">{flash}</div>}
 
-      {trips.map((t) => (
-        <div className="card card-pad stack-sm" key={t.trip_id}>
-          <div className="row-between">
-            <div>
-              <strong style={{ fontSize: '1.1rem' }}>{timeOf(t.depart_at)}</strong>{' '}
-              <span className="muted">{dateOf(t.depart_at)}</span>
-              <div>{t.route}</div>
-              <div className="small muted">
-                {t.registration} · {t.crew_role === 'UNASSIGNED' ? 'not rostered' : t.crew_role.toLowerCase()}
+      {trips.map((tr) => {
+        const next = CREW_NEXT[tr.status];
+        const allOn = tr.passengers > 0 && tr.boarded >= tr.passengers;
+        return (
+          <div className="card card-pad stack-sm" key={tr.trip_id}>
+            <div className="row-between">
+              <div style={{ minWidth: 0 }}>
+                {/* The departure time is what a driver looks for first, so it is
+                    the largest thing on the card and nothing competes with it. */}
+                <div className="crew-when">
+                  <strong>{fmt.time(tr.depart_at)}</strong>
+                  <span className="muted">{fmt.day(tr.depart_at)}</span>
+                </div>
+                <div style={{ fontWeight: 600 }}>{tr.route}</div>
+                <div className="small muted">
+                  {tr.registration} ·{' '}
+                  {tr.crew_role === 'UNASSIGNED'
+                    ? t('dr.notRostered')
+                    : say(`dr.role.${tr.crew_role}`, tr.crew_role.toLowerCase())}
+                </div>
+              </div>
+              <span className="pill">
+                {say(`tr.state.${tr.status}`, tr.status.replace(/_/g, ' ').toLowerCase())}
+              </span>
+            </div>
+
+            {/* How many are on. A count with a bar rather than a bare fraction:
+                a driver checks this at a glance while looking at the door. */}
+            <div className="row" style={{ gap: '.6rem' }}>
+              <span className={`small ${allOn ? '' : 'muted'}`} style={allOn ? { color: 'var(--ok)', fontWeight: 660 } : undefined}>
+                {t('dr.ofTotal', { done: tr.boarded, total: tr.passengers })}
+              </span>
+              <div style={{ flex: '0 1 160px' }}>
+                <Bar value={tr.boarded} max={Math.max(1, tr.passengers)} />
               </div>
             </div>
-            <span className="pill">{t.status.replace(/_/g, ' ').toLowerCase()}</span>
-          </div>
 
-          <div className="row" style={{ gap: '.6rem' }}>
-            <span className="small muted">{t.boarded} of {t.passengers} boarded</span>
-            <div style={{ flex: '0 1 160px' }}><Bar value={t.boarded} max={Math.max(1, t.passengers)} /></div>
-          </div>
-
-          <div className="row">
-            <Link className="btn btn-brand btn-sm" href={`/driver/scan?trip=${t.trip_id}`}>
-              Board passengers
-            </Link>
-            <Link className="btn btn-ghost btn-sm" href={`/driver/manifest/${t.trip_id}`}>
-              Manifest
-            </Link>
-            {CREW_NEXT[t.status] && (
-              <button className="btn btn-primary btn-sm" onClick={() => advance(t)}>
-                {CREW_NEXT[t.status].replace(/_/g, ' ').toLowerCase()}
+            <div className="row">
+              <Link className="btn btn-brand" href={`/driver/scan?trip=${tr.trip_id}`}>
+                {t('dr.nav.scan')}
+              </Link>
+              <Link className="btn btn-ghost" href={`/driver/manifest/${tr.trip_id}`}>
+                {t('dr.manifest')}
+              </Link>
+              {next && (
+                <button className="btn btn-primary" onClick={() => advance(tr)}>
+                  {say(`dr.do.${next}`, next.replace(/_/g, ' ').toLowerCase())}
+                </button>
+              )}
+              <button className="btn btn-ghost" disabled={sharing === tr.trip_id}
+                      onClick={() => shareLocation(tr)}>
+                {sharing === tr.trip_id ? t('dr.sharing') : t('dr.shareLocation')}
               </button>
-            )}
-            <button className="btn btn-ghost btn-sm" disabled={sharing === t.trip_id}
-                    onClick={() => shareLocation(t)}>
-              {sharing === t.trip_id ? 'Sharing…' : 'Share position'}
-            </button>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {trips.length === 0 && (
         <div className="empty">
-          <h3>No trips assigned</h3>
-          <p className="muted">Nothing is rostered to you in the next few days.</p>
+          <h3>{t('dr.noTrips')}</h3>
+          <p className="muted">{t('dr.noneAssigned')}</p>
         </div>
       )}
     </div>

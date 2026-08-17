@@ -5,7 +5,8 @@ import { ApiError } from '@/lib/api';
 import { sget, spost } from '@/lib/staff';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead } from '@/components/staff-ui';
-import { dateTimeOf, timeOf } from '@/lib/format';
+import { useLang } from '@/components/LangProvider';
+import { STRINGS, type Key } from '@/lib/i18n';
 
 interface Trip { trip_id: string; depart_at: string; route: string }
 interface Incident {
@@ -13,16 +14,13 @@ interface Incident {
   note: string; created_at: string; reported_by: string; route: string; depart_at: string;
 }
 
-const KINDS = [
-  ['BREAKDOWN', 'Breakdown'],
-  ['ACCIDENT', 'Accident'],
-  ['ROUTE_INTERRUPTION', 'Road blocked'],
-  ['DELAY', 'Running late'],
-  ['PASSENGER_ISSUE', 'Passenger issue'],
-  ['OTHER', 'Something else'],
-];
+// The order is the order a driver would think of them in — the worst first,
+// not alphabetical and not the order the enum happens to be declared in.
+const KINDS = ['BREAKDOWN', 'ACCIDENT', 'ROUTE_INTERRUPTION', 'DELAY', 'PASSENGER_ISSUE', 'OTHER'];
+const SEVERITIES = ['LOW', 'MEDIUM', 'HIGH'];
 
 export default function IncidentsPage() {
+  const { t, fmt } = useLang();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [rows, setRows] = useState<Incident[]>([]);
   const [tripId, setTripId] = useState('');
@@ -38,10 +36,10 @@ export default function IncidentsPage() {
       sget<{ trips: Trip[] }>('/driver/trips'),
       sget<{ incidents: Incident[] }>('/driver/incidents'),
     ])
-      .then(([t, i]) => {
-        setTrips(t.trips);
+      .then(([tr, i]) => {
+        setTrips(tr.trips);
         setRows(i.incidents);
-        if (!tripId && t.trips[0]) setTripId(t.trips[0].trip_id);
+        if (!tripId && tr.trips[0]) setTripId(tr.trips[0].trip_id);
       })
       .catch((e: ApiError) => setError(e.message))
       .finally(() => setLoading(false));
@@ -54,69 +52,82 @@ export default function IncidentsPage() {
     setError('');
     try {
       await spost('/driver/incidents', { trip_id: tripId, kind, severity, note });
-      setFlash('Reported. The office can see this now.');
+      setFlash(t('dr.in.sent'));
       setNote('');
       load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'The report could not be saved.');
+      setError(err instanceof ApiError ? err.message : t('dr.in.fail'));
     }
   };
+
+  // Server-side enums, translated where a word exists and shown raw where it
+  // does not. A new incident kind added to the backend appears here as itself
+  // rather than as an empty cell.
+  const say = (k: string, fallback: string) =>
+    (k as Key) in STRINGS ? t(k as Key) : fallback;
 
   if (loading) return <Loading rows={2} />;
 
   return (
     <div className="stack">
-      <PageHead title="Incidents" sub="Tell the office what happened, in your own words" />
+      <PageHead title={t('dr.problem')} sub={t('dr.in.sub')} />
       {error && <ErrorNotice message={error} />}
       {flash && <div className="notice notice-info">{flash}</div>}
 
       <form className="card card-pad stack" style={{ maxWidth: 520 }} onSubmit={report}>
         <div className="field">
-          <label className="label" htmlFor="i-trip">Which trip</label>
+          <label className="label" htmlFor="i-trip">{t('dr.in.which')}</label>
           <select id="i-trip" className="select" value={tripId} onChange={(e) => setTripId(e.target.value)}>
-            {trips.map((t) => (
-              <option key={t.trip_id} value={t.trip_id}>{timeOf(t.depart_at)} · {t.route}</option>
+            {trips.map((tr) => (
+              <option key={tr.trip_id} value={tr.trip_id}>{fmt.time(tr.depart_at)} · {tr.route}</option>
             ))}
           </select>
         </div>
         <div className="row" style={{ gap: '.6rem' }}>
           <div className="field" style={{ flex: 1 }}>
-            <label className="label" htmlFor="i-kind">What happened</label>
+            <label className="label" htmlFor="i-kind">{t('dr.in.what')}</label>
             <select id="i-kind" className="select" value={kind} onChange={(e) => setKind(e.target.value)}>
-              {KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              {KINDS.map((k) => <option key={k} value={k}>{say(`dr.kind.${k}`, k)}</option>)}
             </select>
           </div>
-          <div className="field" style={{ flex: '0 1 140px' }}>
-            <label className="label" htmlFor="i-sev">How serious</label>
+          <div className="field" style={{ flex: '0 1 160px' }}>
+            <label className="label" htmlFor="i-sev">{t('dr.in.serious')}</label>
             <select id="i-sev" className="select" value={severity} onChange={(e) => setSeverity(e.target.value)}>
-              <option value="LOW">Minor</option>
-              <option value="MEDIUM">Needs attention</option>
-              <option value="HIGH">Urgent</option>
+              {SEVERITIES.map((s) => <option key={s} value={s}>{say(`dr.sev.${s}`, s)}</option>)}
             </select>
           </div>
         </div>
         <div className="field">
-          <label className="label" htmlFor="i-note">Details</label>
+          <label className="label" htmlFor="i-note">{t('dr.in.details')}</label>
           <input id="i-note" className="input" value={note} onChange={(e) => setNote(e.target.value)}
-                 placeholder="Held 20 minutes at the Meghna bridge" required />
+                 placeholder={t('dr.in.placeholder')} required />
         </div>
-        <button className="btn btn-primary btn-block" type="submit" disabled={!note}>Report</button>
+        <button className="btn btn-primary btn-block btn-lg" type="submit"
+                disabled={!note} data-act="report-incident">
+          {t('dr.send')}
+        </button>
       </form>
 
       <div>
-        <h3 style={{ marginBottom: '.5rem' }}>Reported</h3>
+        <h3 style={{ marginBottom: '.5rem' }}>{t('dr.in.listTitle')}</h3>
         <div className="table-wrap">
           <table className="data">
-            <thead><tr><th>When</th><th>Trip</th><th>Type</th><th>Severity</th><th>Details</th><th>By</th></tr></thead>
+            <thead>
+              <tr>
+                <th>{t('ag.when')}</th><th>{t('dr.scanTrip')}</th>
+                <th>{t('dr.in.what')}</th><th>{t('dr.in.serious')}</th>
+                <th>{t('dr.in.details')}</th><th>{t('dr.in.by')}</th>
+              </tr>
+            </thead>
             <tbody>
               {rows.map((i) => (
                 <tr key={i.incident_id}>
-                  <td className="small muted">{dateTimeOf(i.created_at)}</td>
-                  <td className="small">{i.route}<div className="muted">{timeOf(i.depart_at)}</div></td>
-                  <td>{KINDS.find(([v]) => v === i.kind)?.[1] ?? i.kind}</td>
+                  <td className="small muted">{fmt.dateTime(i.created_at)}</td>
+                  <td className="small">{i.route}<div className="muted">{fmt.time(i.depart_at)}</div></td>
+                  <td>{say(`dr.kind.${i.kind}`, i.kind)}</td>
                   <td>
                     <span className={`pill ${i.severity === 'HIGH' ? 'pill-danger' : i.severity === 'MEDIUM' ? 'pill-warn' : ''}`}>
-                      {i.severity.toLowerCase()}
+                      {say(`dr.sev.${i.severity}`, i.severity.toLowerCase())}
                     </span>
                   </td>
                   <td>{i.note}</td>
@@ -124,19 +135,14 @@ export default function IncidentsPage() {
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={6} className="muted center">Nothing reported.</td></tr>
+                <tr><td colSpan={6} className="muted center">{t('dr.in.empty')}</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      <p className="small muted">
-        Reporting an incident records it and raises it: the control room and the
-        operator both get a message, and a breakdown opens an alert in the
-        operations console. Nobody has to be watching this screen for it to be
-        seen.
-      </p>
+      <p className="small muted">{t('dr.in.foot')}</p>
     </div>
   );
 }

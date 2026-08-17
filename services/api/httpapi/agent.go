@@ -61,7 +61,10 @@ func (s *Server) handleAgentWallet(w http.ResponseWriter, r *http.Request, id *s
 	// The cache is shown next to the recomputation. If they ever disagree, the
 	// portal says so rather than quietly displaying a number nobody can defend.
 	recAvail, recHeld, rerr := s.wal.Recompute(r.Context(), wal.WalletID)
-	out := map[string]any{"wallet": wal}
+	// Same reason as the counter: the agent portal was assembling the sale total
+	// from its own copy of the fee, and an agent sells against a credit limit
+	// off that number.
+	out := map[string]any{"wallet": wal, "service_fee_poisha": serviceFeePoisha}
 	if rerr == nil {
 		out["recomputed"] = map[string]any{
 			"available_poisha": recAvail, "held_poisha": recHeld,

@@ -15,6 +15,11 @@ import { LanguageSwitcher, useLang } from './LangProvider';
 
 const STAFF_PREFIXES = ['/staff', '/counter', '/agent', '/operator', '/admin', '/helpdesk', '/driver'];
 
+// Routes where the bottom tab bar stands down so the funnel offers one action.
+// The fascia needs to know, because with no tab bar beneath it, it sits on the
+// floor of the viewport rather than 58px above it.
+const FUNNEL_PREFIXES = ['/checkout', '/payment', '/confirmation'];
+
 export function SiteChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? '/';
   const { t, lang } = useLang();
@@ -22,8 +27,10 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
 
   if (isStaff) return <>{children}</>;
 
+  const inFunnel = FUNNEL_PREFIXES.some((p) => pathname.startsWith(p));
+
   return (
-    <>
+    <div className={inFunnel ? 'no-tabbar' : undefined}>
       <header className="site-header">
         <div className="container inner">
           <Link href="/" className="brandmark" aria-label={`${t('brand.name')} — ${t('nav.main')}`}>
@@ -64,7 +71,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
       </footer>
 
       <MobileNav />
-    </>
+    </div>
   );
 }
 

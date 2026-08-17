@@ -19,6 +19,11 @@ const check = (label, cond, detail = '') => {
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+// Pin the interface language. These checks assert on English copy, and the
+// site now defaults to Bangla — so without this the suite would be testing a
+// translation it never claimed to. A Bangla pass is its own run, not a side
+// effect of whichever default happens to be in force.
+await ctx.addCookies([{ name: 'jatra.lang', value: 'en', url: WEB }]);
 const page = await ctx.newPage();
 
 const errors = [];
@@ -26,6 +31,21 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
 const shot = (name) => page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true });
+
+// A fresh mobile number per run.
+//
+// This used to be the literal 01700000000 in three places, which made the suite
+// fail on its sixth run inside five minutes — not because anything was broken,
+// but because the OTP endpoint rate-limits a number after five codes and the
+// harness kept asking for a sixth. A test that goes red from being run is a
+// test people learn to ignore.
+//
+// The number still has to be the SAME on both sides of the run: the booking is
+// made as a guest against it, and step 13 signs in on it to prove the guest
+// booking is claimed. One value, generated once, used in both places.
+const PHONE = '017' + String(Math.floor(Math.random() * 1e8)).padStart(8, '0');
+const PHONE_E164 = '+880' + PHONE.slice(1);
+console.log(`passenger for this run: ${PHONE}`);
 
 try {
   console.log('\n=== 1. HOME ===');
@@ -41,26 +61,30 @@ try {
   await page.fill('#date-full', date);
   await page.click('button[type="submit"]');
   await page.waitForURL('**/search**');
-  await page.waitForSelector('article.card.trip', { timeout: 20000 });
-  const cards = await page.locator('article.card.trip').count();
+  await page.waitForSelector('article[data-trip]', { timeout: 20000 });
+  const cards = await page.locator('article[data-trip]').count();
   check('results rendered', cards >= 4, `${cards} departures`);
   check('alias resolved in heading', (await page.locator('h1').first().innerText()).includes('Chattogram'));
   await shot('02-search');
 
   console.log('\n=== 3. FILTER + SORT ===');
-  await page.getByLabel('AC only').check();
+  // The filters are toggle chips now, not native checkboxes — a pressed button
+  // rather than a label-and-input pair, so this asserts aria-pressed too.
+  const acChip = page.getByRole('button', { name: 'AC only', exact: true });
+  await acChip.click();
+  check('AC chip reports itself pressed', await acChip.getAttribute('aria-pressed') === 'true');
   await page.waitForTimeout(300);
-  const acCards = await page.locator('article.card.trip').count();
+  const acCards = await page.locator('article[data-trip]').count();
   check('AC filter narrows results', acCards > 0 && acCards <= cards, `${acCards} of ${cards}`);
   await page.selectOption('#sort', 'price');
   await page.waitForTimeout(300);
-  const prices = await page.locator('.trip-price').allInnerTexts();
+  const prices = await page.locator('.br-fare').allInnerTexts();
   const nums = prices.map((p) => Number(p.replace(/[^\d]/g, '')));
   check('price sort ascending', nums.every((v, i) => i === 0 || nums[i - 1] <= v), nums.join(' ≤ '));
   await shot('03-filtered');
 
   console.log('\n=== 4. SEAT SELECTION ===');
-  await page.locator('article.card.trip a:has-text("Select seats")').first().click();
+  await page.locator('article[data-trip] a:has-text("Select seats")').first().click();
   await page.waitForURL('**/trips/**');
   const tripUrl = page.url();
   await page.waitForSelector('.bus button.seat', { timeout: 20000 });
@@ -91,6 +115,13 @@ try {
   check('one name field per seat', (await names.count()) === 2);
   await names.nth(0).fill('Rahim Uddin');
   await names.nth(1).fill('Fatema Begum');
+  // The contact number is no longer pre-filled with a developer's placeholder,
+  // so it has to be typed — which is the point. This step passing without it
+  // was the bug: a real passenger would have sent their ticket to +8801700000000.
+  check('contact number starts empty', (await page.inputValue('#phone')) === '');
+  // The same number this run signs in with at step 13 — the guest booking is
+  // claimed by phone, so the two must agree for that assertion to mean anything.
+  await page.fill('#phone', PHONE);
   await page.fill('#coupon', 'EIDSAFAR');
   await shot('05-checkout');
 
@@ -107,7 +138,7 @@ try {
   await page.click('label:has-text("bKash")');
   await page.click('button:has-text("Pay ")');
   await page.waitForURL('**/payment/sandbox**', { timeout: 20000 });
-  check('sandbox provider reached', await page.locator('text=Sandbox payment provider').isVisible());
+  check('sandbox provider reached', await page.locator('text=Test payment screen').isVisible());
   await shot('07-sandbox');
 
   console.log('\n=== 7. CONFIRMATION ===');
@@ -137,8 +168,11 @@ try {
   console.log('\n=== 10. MANAGE + CANCEL ===');
   await page.goto(`${WEB}/manage/${pnr}`, { waitUntil: 'networkidle' });
   check('manage page renders', await page.locator(`text=${pnr}`).first().isVisible());
-  const refundText = await page.locator('text=back').first().innerText().catch(() => '');
-  check('refund quote shown', /৳/.test(refundText), refundText.trim());
+  // A stable hook, not the word "back". The previous selector was `text=back`,
+  // which matched whatever sentence happened to contain those four letters and
+  // would have gone green against a page with no refund figure on it at all.
+  const refundText = await page.locator('[data-testid="refund-quote"]').innerText().catch(() => '');
+  check('refund quote shown', /৳/.test(refundText), refundText.replace(/\n/g, ' ').trim());
   await shot('11-manage');
 
   await page.click('button:has-text("Cancel booking")');
@@ -171,9 +205,9 @@ try {
   // Fill and verify: the form is server-rendered, so a keystroke landing before
   // React takes the input over is discarded.
   for (let i = 0; i < 6; i++) {
-    await page.fill('#phone', '01700000000');
+    await page.fill('#phone', PHONE);
     await page.waitForTimeout(120);
-    if ((await page.inputValue('#phone')) === '01700000000') break;
+    if ((await page.inputValue('#phone')) === PHONE) break;
   }
   await page.click('button:has-text("Send me a code")');
   // SHOW_OTP is on for this harness, so the page fills the code in. In
@@ -185,7 +219,8 @@ try {
   await page.waitForURL('**/account**', { timeout: 20000 });
   await page.waitForSelector('[data-testid="account-identity"]', { timeout: 20000 });
   check('signed in and landed on the account',
-    (await page.locator('[data-testid="account-identity"]').innerText()).includes('+8801700000000'));
+    (await page.locator('[data-testid="account-identity"]').innerText()).includes(PHONE_E164),
+    PHONE_E164);
   await shot('15-signed-in');
 
   console.log('\n=== 14. THE GUEST BOOKING IS NOW IN THE ACCOUNT ===');
@@ -199,10 +234,13 @@ try {
     /[ACDEFGHJKLMNPQRTUVWXY3479]{8}/.test(await page.locator('.page').innerText()));
   await shot('16-referral');
 
-  await page.click('button:has-text("Devices")');
+  // "Devices" and "This one" were the old labels. A passenger does not think in
+  // devices, they think about where they are still signed in — so the tab says
+  // that, and the badge names the phone in their hand rather than "this one".
+  await page.click('button:has-text("Where you are signed in")');
   await page.waitForTimeout(400);
-  check('this sign-in is listed as a device',
-    (await page.locator('.page').innerText()).includes('This one'));
+  check('this sign-in is listed',
+    (await page.locator('.page').innerText()).includes('This device'));
   await shot('17-devices');
 
   console.log('\n=== 15. NO CONSOLE ERRORS ===');

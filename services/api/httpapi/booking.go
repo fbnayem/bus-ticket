@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -143,11 +144,53 @@ func (s *Server) handleGetHold(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, 200, map[string]any{
+	// The frozen price snapshot has always been read here and then thrown away,
+	// which is why a passenger who reloaded checkout — or opened the link on
+	// another device — was shown a form asking for names with no trip and no
+	// total attached. The price is the hold's own, taken at hold time and never
+	// recomputed, so returning it is strictly more honest than letting the
+	// client reconstruct one.
+	body := map[string]any{
 		"hold_id": holdID, "trip_id": tripID, "status": status,
 		"expires_at": expires, "seats": seats,
 		"expired":    time.Now().After(expires) && status == "HELD",
-	})
+	}
+	// Re-emitted through priceBreakdown rather than passed through raw. The
+	// stored snapshot predates that struct and spells the seat count "seats",
+	// so handing it back verbatim would make GET /holds/{id} and POST /holds
+	// disagree about the shape of the same object — and a client written
+	// against one would silently read undefined from the other.
+	if len(snapshot) > 0 {
+		var snap struct {
+			FarePoisha       int64  `json:"fare_poisha"`
+			SeatCount        int    `json:"seat_count"`
+			Seats            int    `json:"seats"`
+			BasePoisha       int64  `json:"base_poisha"`
+			ServiceFeePoisha int64  `json:"service_fee_poisha"`
+			DiscountPoisha   int64  `json:"discount_poisha"`
+			TotalPoisha      int64  `json:"total_poisha"`
+			CouponCode       string `json:"coupon_code"`
+		}
+		if json.Unmarshal(snapshot, &snap) == nil {
+			count := snap.SeatCount
+			if count == 0 {
+				count = snap.Seats
+			}
+			if count == 0 {
+				count = len(seats)
+			}
+			body["price"] = priceBreakdown{
+				FarePoisha:       snap.FarePoisha,
+				SeatCount:        count,
+				BasePoisha:       snap.BasePoisha,
+				ServiceFeePoisha: snap.ServiceFeePoisha,
+				DiscountPoisha:   snap.DiscountPoisha,
+				TotalPoisha:      snap.TotalPoisha,
+				CouponCode:       snap.CouponCode,
+			}
+		}
+	}
+	writeJSON(w, 200, body)
 }
 
 func (s *Server) handleReleaseHold(w http.ResponseWriter, r *http.Request) {

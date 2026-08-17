@@ -1,25 +1,47 @@
-// Visual check across the axes that actually differ: language, viewport, theme.
+// Walk the funnel and photograph it. Not a test — it asserts nothing.
 import { chromium } from 'playwright';
 
 const dir = process.argv[2];
+const lang = process.argv[3] ?? 'bn';
 const base = 'http://localhost:3000';
-const b = await chromium.launch();
+const browser = await chromium.launch();
+const ctx = await browser.newContext({
+  viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true,
+});
+await ctx.addCookies([{ name: 'jatra.lang', value: lang, url: base }]);
+const page = await ctx.newPage();
 
-async function shot(name, { lang = 'bn', width = 360, height = 800, url = '/', full = false, theme } = {}) {
-  const ctx = await b.newContext({
-    viewport: { width, height }, deviceScaleFactor: 2,
-    colorScheme: theme === 'dark' ? 'dark' : 'light',
-  });
-  await ctx.addCookies([{ name: 'jatra.lang', value: lang, url: base }]);
-  const p = await ctx.newPage();
-  await p.goto(base + url, { waitUntil: 'networkidle' });
-  await p.screenshot({ path: `${dir}/${name}.png`, fullPage: full });
-  await ctx.close();
-}
+const snap = async (n) => {
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: `${dir}/f-${lang}-${n}.png` });
+  console.log(`  ✓ ${n}`);
+};
 
-await shot('home-bn-360', { lang: 'bn', width: 360, height: 780 });
-await shot('home-en-1280', { lang: 'en', width: 1280, height: 900 });
-await shot('home-bn-360-dark', { lang: 'bn', width: 360, height: 780, theme: 'dark' });
+await page.goto(`${base}/search?from=Dhaka&to=Chattogram`, { waitUntil: 'networkidle' });
+await page.waitForSelector('article[data-trip]', { timeout: 25000 });
+await snap('2-results');
 
-await b.close();
-console.log('ok');
+await page.locator('article[data-trip] a').first().click();
+await page.waitForURL('**/trips/**');
+await page.waitForSelector('.bus button.seat', { timeout: 25000 });
+const free = page.locator('.bus button.seat[data-state="free"]');
+await free.nth(0).click();
+await free.nth(0).click();
+await snap('3-seats');
+
+await page.locator('.actionbar button').click();
+await page.waitForURL('**/checkout**', { timeout: 25000 });
+await page.waitForSelector('input[id^="name-"]', { timeout: 25000 });
+const names = page.locator('input[id^="name-"]');
+await names.nth(0).fill('রহিম উদ্দিন');
+await names.nth(1).fill('ফাতেমা বেগম');
+await page.fill('#phone', '01700000000');
+await snap('4-checkout');
+
+await page.locator('.actionbar button').click();
+await page.waitForURL('**/payment/**', { timeout: 25000 });
+await page.waitForSelector('.fare-plate', { timeout: 25000 });
+await snap('5-payment');
+
+await browser.close();
+console.log('done');

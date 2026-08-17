@@ -7,7 +7,8 @@ import { sget } from '@/lib/staff';
 import { queue, type QueuedSale } from '@/lib/offline';
 import { ErrorNotice, Loading, StatusPill } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
-import { dateTimeOf, timeOf } from '@/lib/format';
+import { useLang } from '@/components/LangProvider';
+import { Ref } from '@/components/Ref';
 
 interface Sale {
   pnr: string; status: string; total_poisha: number; created_at: string;
@@ -15,6 +16,7 @@ interface Sale {
 }
 
 export default function CounterSalesPage() {
+  const { t, fmt } = useLang();
   const [sales, setSales] = useState<Sale[]>([]);
   const [pending, setPending] = useState<QueuedSale[]>([]);
   const [error, setError] = useState('');
@@ -32,25 +34,31 @@ export default function CounterSalesPage() {
 
   return (
     <div className="stack">
-      <PageHead title="Sales from this counter" sub="Most recent first · reprint from the ticket page" />
+      <PageHead title={t('co.nav.sales')} sub={t('co.s.sub')} />
       {error && <ErrorNotice message={error} />}
 
+      {/* Sales made without the line come FIRST, above the confirmed ones.
+          They are the only rows on this page that still need something from
+          the clerk, and burying them under a day's takings is how a shift
+          reaches closing time with cash it cannot account for. */}
       {pending.length > 0 && (
         <div className="card card-pad stack-sm">
-          <h3 style={{ marginBottom: 0 }}>Not yet synced ({pending.length})</h3>
-          <p className="small muted" style={{ marginBottom: '.3rem' }}>
-            Sold offline from this counter&apos;s own reserved seats. They have no
-            PNR until the terminal reconnects and the queue is replayed.
-          </p>
+          <h3 style={{ marginBottom: 0 }}>{t('co.s.pending', { count: pending.length })}</h3>
+          <p className="small muted" style={{ marginBottom: '.3rem' }}>{t('co.s.pendingNote')}</p>
           <div className="table-wrap">
             <table className="data">
-              <thead><tr><th>Reference</th><th>Seats</th><th>Sold</th><th className="num">Amount</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>{t('co.s.ref')}</th><th>{t('co.seats')}</th>
+                  <th>{t('co.s.soldAt')}</th><th className="num">{t('co.s.amount')}</th>
+                </tr>
+              </thead>
               <tbody>
                 {pending.map((p) => (
                   <tr key={p.client_ref}>
                     <td className="mono small">{p.client_ref.slice(-8)}</td>
                     <td className="mono">{p.seats.join(', ')}</td>
-                    <td>{dateTimeOf(p.sold_at)}</td>
+                    <td>{fmt.dateTime(p.sold_at)}</td>
                     <td className="num"><Money poisha={p.total_poisha} /></td>
                   </tr>
                 ))}
@@ -64,25 +72,27 @@ export default function CounterSalesPage() {
         <table className="data">
           <thead>
             <tr>
-              <th>PNR</th><th>Departure</th><th>Seats</th><th>Paid with</th>
-              <th className="num">Amount</th><th>Status</th><th>Sold</th><th />
+              <th>{t('co.s.pnr')}</th><th>{t('co.s.departure')}</th>
+              <th>{t('co.seats')}</th><th>{t('co.s.paidWith')}</th>
+              <th className="num">{t('co.s.amount')}</th><th>{t('co.s.status')}</th>
+              <th>{t('co.s.soldAt')}</th><th />
             </tr>
           </thead>
           <tbody>
             {sales.map((s) => (
               <tr key={s.pnr}>
-                <td className="mono"><strong>{s.pnr}</strong></td>
-                <td>{s.operator} · {timeOf(s.depart_at)}</td>
+                <td><Ref value={s.pnr} /></td>
+                <td>{s.operator} · {fmt.time(s.depart_at)}</td>
                 <td className="mono">{s.seats}</td>
-                <td>{s.provider || '—'}</td>
+                <td>{s.provider === 'CASH' ? t('co.cash') : s.provider || '—'}</td>
                 <td className="num"><Money poisha={s.total_poisha} /></td>
                 <td><StatusPill status={s.status} /></td>
-                <td className="muted small">{dateTimeOf(s.created_at)}</td>
-                <td><Link className="btn btn-sm btn-ghost" href={`/tickets/${s.pnr}`}>Reprint</Link></td>
+                <td className="muted small">{fmt.dateTime(s.created_at)}</td>
+                <td><Link className="btn btn-sm btn-ghost" href={`/tickets/${s.pnr}`}>{t('co.s.reprint')}</Link></td>
               </tr>
             ))}
             {sales.length === 0 && (
-              <tr><td colSpan={8} className="muted center">Nothing sold from this counter yet.</td></tr>
+              <tr><td colSpan={8} className="muted center">{t('co.s.empty')}</td></tr>
             )}
           </tbody>
         </table>

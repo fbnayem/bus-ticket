@@ -6,9 +6,17 @@ import Link from 'next/link';
 import { login } from '@/lib/staff';
 import { ApiError } from '@/lib/api';
 import { ErrorNotice } from '@/components/ui';
+import { LanguageSwitcher, useLang } from '@/components/LangProvider';
 
 // Six applications, one door. Where you land afterwards is decided by the
 // server from your permissions, not by a role name hardcoded here.
+//
+// This page is bilingual even though three of the six workplaces behind it are
+// English-only: a counter clerk and a bus helper meet this screen before they
+// meet their own, and the language they pick here is the one their workplace
+// opens in.
+
+const DEMO_PASSWORD = 'Jatra#2026';
 
 const DEMO = [
   ['admin@jatra.test', 'Super Admin — the whole platform'],
@@ -26,6 +34,7 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next');
+  const { t } = useLang();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -49,7 +58,7 @@ function LoginForm() {
         setNeedCode(true);
         setTotp('');
       }
-      setError(api ? api.message : 'Sign-in failed.');
+      setError(api ? api.message : t('sl.failed'));
       setBusy(false);
     }
   };
@@ -57,18 +66,19 @@ function LoginForm() {
   return (
     <div className="login-page">
       <div className="login-card stack">
-        <div>
-          <h1 style={{ marginBottom: '.2rem' }}>Staff sign in</h1>
-          <p className="muted">
-            Counter, agent, operator, admin, support and crew all sign in here.
-          </p>
+        <div className="row-between" style={{ alignItems: 'flex-start' }}>
+          <div>
+            <h1 style={{ marginBottom: '.2rem' }}>{t('sl.title')}</h1>
+            <p className="muted" style={{ marginBottom: 0 }}>{t('sl.sub')}</p>
+          </div>
+          <LanguageSwitcher compact />
         </div>
 
         <form className="card card-pad stack" onSubmit={submit}>
           {error && <ErrorNotice message={error} />}
 
           <div className="field">
-            <label className="label" htmlFor="email">Work email</label>
+            <label className="label" htmlFor="email">{t('sl.email')}</label>
             <input
               id="email" className="input" type="email" autoComplete="username" required
               value={email} onChange={(e) => setEmail(e.target.value)}
@@ -77,7 +87,7 @@ function LoginForm() {
           </div>
 
           <div className="field">
-            <label className="label" htmlFor="password">Password</label>
+            <label className="label" htmlFor="password">{t('sl.password')}</label>
             <input
               id="password" className="input" type="password" autoComplete="current-password" required
               value={password} onChange={(e) => setPassword(e.target.value)}
@@ -86,44 +96,41 @@ function LoginForm() {
 
           {needCode && (
             <div className="field">
-              <label className="label" htmlFor="totp">Six-digit code</label>
+              <label className="label" htmlFor="totp">{t('sl.code')}</label>
               <input
                 id="totp" className="input" inputMode="numeric" autoComplete="one-time-code"
                 maxLength={6} required value={totp}
                 onChange={(e) => setTotp(e.target.value.replace(/\D/g, ''))}
                 placeholder="••••••"
               />
-              <p className="small muted" style={{ marginBottom: 0 }}>
-                From your authenticator app. Each code works once.
-              </p>
+              <p className="small muted" style={{ marginBottom: 0 }}>{t('sl.codeHint')}</p>
             </div>
           )}
 
-          <button className="btn btn-primary btn-block btn-lg" type="submit" disabled={busy}>
-            {busy ? 'Signing in…' : 'Sign in'}
+          <button className="btn btn-primary btn-block btn-lg" type="submit"
+                  disabled={busy} data-act="staff-signin">
+            {busy ? t('sl.signingIn') : t('sl.signIn')}
           </button>
 
-          <p className="small muted" style={{ marginBottom: 0 }}>
-            Sessions last 12 hours. Eight wrong passwords lock the account.
-          </p>
+          <p className="small muted" style={{ marginBottom: 0 }}>{t('sl.sessionNote')}</p>
         </form>
 
         <div className="card card-pad stack-sm">
-          <strong className="small">Demo accounts — password <code className="mono">Jatra#2026</code></strong>
-          <p className="small muted" style={{ marginBottom: '.2rem' }}>
-            Fixtures for this local build. Pick one to see how differently the
-            platform behaves for each role.
-          </p>
+          <strong className="small">
+            {t('sl.demoTitle', { password: DEMO_PASSWORD })}
+          </strong>
+          <p className="small muted" style={{ marginBottom: '.2rem' }}>{t('sl.demoNote')}</p>
           <div className="demo-list">
             {DEMO.map(([addr, who]) => (
-              <button key={addr} type="button" onClick={() => { setEmail(addr); setPassword('Jatra#2026'); }}>
+              <button key={addr} type="button"
+                      onClick={() => { setEmail(addr); setPassword(DEMO_PASSWORD); }}>
                 <span className="mono">{addr}</span> — <span className="muted">{who}</span>
               </button>
             ))}
           </div>
         </div>
 
-        <Link className="small" href="/">← Back to the passenger site</Link>
+        <Link className="small" href="/">← {t('sl.back')}</Link>
       </div>
     </div>
   );

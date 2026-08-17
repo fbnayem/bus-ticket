@@ -50,13 +50,26 @@ echo "→ Anek Bangla"
 curl -fsS -o "$TMP/bangla.woff2" "$BANGLA_SRC"
 "$PY" -m fontTools.varLib.instancer "$TMP/bangla.woff2" "wdth=100" "wght=400:800" \
   -o "$TMP/bangla.ttf" --quiet
-# The layout features are named rather than globbed: Bengali shaping genuinely
-# needs the conjunct and reordering features (akhn, rphf, blwf, half, pstf,
-# vatu, pres, abvs, blws, psts, haln) and dropping any one of them silently
-# breaks যুক্তাক্ষর rendering rather than failing loudly.
+# KEEP EVERY LAYOUT FEATURE. This line used to enumerate them, on the reasoning
+# that Bengali shaping needs the conjunct and reordering features and so those
+# should be named explicitly. That reasoning is exactly backwards, and it
+# shipped broken Bangla for it.
+#
+# An enumerated list can only be wrong in one direction: a feature you forget is
+# a feature that silently disappears. This one forgot the GPOS mark-positioning
+# features — abvm, blwm and dist — which are what put a matra under, over or
+# beside its consonant. Without them the u-kar in দেখুন stops being a mark at
+# all and takes its own advance width, so the word renders as দেখনু. It is
+# legible enough to skim past in review and completely wrong to a reader.
+#
+# It also dropped cjct (conjuncts), nukt (nukta forms, so ড় ঢ় য়) and rvrn,
+# which a variable font needs to substitute correctly across the weight axis.
+#
+# A layout table is a few KB against 129 KB of outlines. There was never a
+# saving here worth one misspelt word, let alone every one of them.
 "$PY" -m fontTools.subset "$TMP/bangla.ttf" \
   --unicodes="U+0964-0965,U+0980-09FE,U+200C-200D,U+25CC,U+0020-007E" \
-  --layout-features="ccmp,akhn,rphf,blwf,half,pstf,vatu,pres,abvs,blws,psts,haln,kern,mark,mkmk,liga,locl" \
+  --layout-features="*" \
   --no-hinting --desubroutinize \
   --flavor=woff2 --output-file="$OUT/anek-bangla-subset.woff2"
 

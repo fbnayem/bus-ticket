@@ -6,7 +6,7 @@ import { sget, spost } from '@/lib/staff';
 import { queue } from '@/lib/offline';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money, Tile, Variance } from '@/components/staff-ui';
-import { taka, dateTimeOf } from '@/lib/format';
+import { useLang } from '@/components/LangProvider';
 
 // The cash drawer.
 //
@@ -37,6 +37,7 @@ interface Shift {
 }
 
 export default function ShiftPage() {
+  const { t, fmt } = useLang();
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [history, setHistory] = useState<Shift[]>([]);
   const [error, setError] = useState('');
@@ -57,11 +58,11 @@ export default function ShiftPage() {
       setHistory(h.shifts);
       if (c.shift) setCounted(String(c.shift.expected_cash_poisha / 100));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Could not load the drawer.');
+      setError(e instanceof ApiError ? e.message : t('co.sh.failLoad'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -69,10 +70,10 @@ export default function ShiftPage() {
     setBusy(true); setError('');
     try {
       await spost('/counter/shifts', { opening_float_poisha: Math.round(Number(float) * 100) });
-      setFlash('Shift open. Cash sales are now counted against this drawer.');
+      setFlash(t('co.sh.openedFlash'));
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'The shift could not be opened.');
+      setError(e instanceof ApiError ? e.message : t('co.sh.failOpen'));
     } finally { setBusy(false); }
   };
 
@@ -83,8 +84,7 @@ export default function ShiftPage() {
       // The plan is explicit about this: a shift cannot close with a pending
       // replay queue, because the cash for those sales is in the drawer but the
       // sales are not yet in the ledger.
-      setError(`${pending} offline sale${pending === 1 ? '' : 's'} have not synced yet. ` +
-               'Sync them before closing, or the count cannot be reconciled.');
+      setError(pending === 1 ? t('co.sh.pending1') : t('co.sh.pending', { count: pending }));
       return;
     }
     setBusy(true); setError('');
@@ -92,14 +92,17 @@ export default function ShiftPage() {
       const res = await spost<{ status: string; expected_cash_poisha: number; variance_poisha: number }>(
         '/counter/shifts/close',
         { shift_id: ctx.shift.shift_id, counted_cash_poisha: Math.round(Number(counted) * 100), note });
-      setFlash(res.variance_poisha === 0
-        ? `Drawer balanced at ${taka(res.expected_cash_poisha, { decimals: true })}.`
-        : `Closed with a ${taka(Math.abs(res.variance_poisha), { decimals: true })} ` +
-          `${res.variance_poisha < 0 ? 'shortfall' : 'surplus'}. A Cash Variance entry has been posted.`);
+      const gap = fmt.taka(Math.abs(res.variance_poisha), { decimals: true });
+      setFlash(
+        res.variance_poisha === 0
+          ? t('co.sh.balanced', { amount: fmt.taka(res.expected_cash_poisha, { decimals: true }) })
+          : res.variance_poisha < 0
+            ? t('co.sh.short', { amount: gap })
+            : t('co.sh.over', { amount: gap }));
       setNote('');
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'The shift could not be closed.');
+      setError(e instanceof ApiError ? e.message : t('co.sh.failClose'));
     } finally { setBusy(false); }
   };
 
@@ -109,7 +112,7 @@ export default function ShiftPage() {
 
   return (
     <div className="stack">
-      <PageHead title="Drawer & shift" sub={ctx ? `${ctx.name} · ${ctx.operator}` : ''} />
+      <PageHead title={t('co.nav.shift')} sub={ctx ? `${ctx.name} · ${ctx.operator}` : ''} />
 
       {error && <ErrorNotice message={error} />}
       {flash && <div className="notice notice-info">{flash}</div>}
@@ -117,85 +120,86 @@ export default function ShiftPage() {
       {s ? (
         <>
           <div className="tiles">
-            <Tile k="Opened" n={new Date(s.opened_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                  hint={dateTimeOf(s.opened_at)} />
-            <Tile k="Opening float" n={taka(s.opening_float_poisha)} />
-            <Tile k="Cash sales" n={taka(s.cash_sales_poisha)} hint={`${s.sale_count} sales`} />
-            <Tile k="Expected in drawer" n={taka(s.expected_cash_poisha)} hint="float + cash movements" />
+            <Tile k={t('co.sh.opened')} n={fmt.time(s.opened_at)} hint={fmt.dateTime(s.opened_at)} />
+            <Tile k={t('co.sh.float')} n={fmt.taka(s.opening_float_poisha)} />
+            <Tile k={t('co.sh.cashSales')} n={fmt.taka(s.cash_sales_poisha)}
+                  hint={s.sale_count === 1 ? t('co.sh.saleCount1') : t('co.sh.saleCount', { count: s.sale_count })} />
+            <Tile k={t('co.sh.expected')} n={fmt.taka(s.expected_cash_poisha)} hint={t('co.sh.expectedHint')} />
           </div>
 
           <div className="card card-pad stack" style={{ maxWidth: 460 }}>
-            <h3>Close the shift</h3>
-            <p className="small muted" style={{ marginBottom: 0 }}>
-              Count the drawer and enter what is physically there. Do not adjust it
-              to match — the point of the count is to catch the difference.
-            </p>
+            <h3>{t('co.sh.closeTitle')}</h3>
+            <p className="small muted" style={{ marginBottom: 0 }}>{t('co.sh.countHint')}</p>
             <div className="field">
-              <label className="label" htmlFor="counted">Counted cash (৳)</label>
+              <label className="label" htmlFor="counted">{t('co.sh.counted')}</label>
               <input id="counted" className="input tnum" type="number" step="0.01"
-                     value={counted} onChange={(e) => setCounted(e.target.value)} />
+                     value={counted} onChange={(e) => setCounted(e.target.value)}
+                     style={{ fontSize: '1.3rem' }} />
             </div>
             <div className="field">
-              <label className="label" htmlFor="note">Note (optional)</label>
+              <label className="label" htmlFor="note">{t('co.sh.note')}</label>
               <input id="note" className="input" value={note} onChange={(e) => setNote(e.target.value)}
-                     placeholder="Anything the manager should know" />
+                     placeholder={t('co.sh.notePlaceholder')} />
             </div>
             {counted !== '' && (
               <div className="row-between">
-                <span className="small muted">Difference</span>
+                <span className="small muted">{t('co.sh.difference')}</span>
                 <Variance poisha={Math.round(Number(counted) * 100) - s.expected_cash_poisha} />
               </div>
             )}
-            <button className="btn btn-primary btn-block" disabled={busy || counted === ''} onClick={close}>
-              {busy ? 'Closing…' : 'Count and close'}
+            <button className="btn btn-primary btn-block btn-lg" disabled={busy || counted === ''}
+                    onClick={close} data-act="close-shift">
+              {busy ? t('co.sh.closing') : t('co.sh.close')}
             </button>
           </div>
         </>
       ) : (
         <div className="card card-pad stack" style={{ maxWidth: 420 }}>
-          <h3>Open a shift</h3>
-          <p className="small muted" style={{ marginBottom: 0 }}>
-            Declare the float you are starting with. Only one drawer can be open
-            on a counter at a time — two would make every taka unattributable.
-          </p>
+          <h3>{t('co.sh.openTitle')}</h3>
+          <p className="small muted" style={{ marginBottom: 0 }}>{t('co.sh.openHint')}</p>
           <div className="field">
-            <label className="label" htmlFor="float">Opening float (৳)</label>
+            <label className="label" htmlFor="float">{t('co.sh.floatLabel')}</label>
             <input id="float" className="input tnum" type="number" step="1"
-                   value={float} onChange={(e) => setFloat(e.target.value)} />
+                   value={float} onChange={(e) => setFloat(e.target.value)}
+                   style={{ fontSize: '1.3rem' }} />
           </div>
-          <button className="btn btn-primary btn-block" disabled={busy} onClick={open}>
-            {busy ? 'Opening…' : 'Open shift'}
+          <button className="btn btn-primary btn-block btn-lg" disabled={busy}
+                  onClick={open} data-act="open-shift">
+            {busy ? t('co.sh.opening') : t('co.sh.open')}
           </button>
         </div>
       )}
 
       <div>
-        <h3 style={{ marginBottom: '.5rem' }}>Recent shifts</h3>
+        <h3 style={{ marginBottom: '.5rem' }}>{t('co.sh.history')}</h3>
         <div className="table-wrap">
           <table className="data">
             <thead>
               <tr>
-                <th>Opened</th><th>Clerk</th><th className="num">Sales</th>
-                <th className="num">Expected</th><th className="num">Counted</th><th>Result</th>
+                <th>{t('co.sh.opened')}</th><th>{t('co.sh.clerk')}</th>
+                <th className="num">{t('co.sh.sales')}</th>
+                <th className="num">{t('co.sh.expected')}</th>
+                <th className="num">{t('co.sh.countedShort')}</th>
+                <th>{t('co.sh.result')}</th>
               </tr>
             </thead>
             <tbody>
               {history.map((h) => (
                 <tr key={h.shift_id}>
-                  <td>{dateTimeOf(h.opened_at)}</td>
+                  <td>{fmt.dateTime(h.opened_at)}</td>
                   <td>{h.clerk}</td>
                   <td className="num">{h.sale_count}</td>
                   <td className="num"><Money poisha={h.expected_cash_poisha} decimals /></td>
                   <td className="num"><Money poisha={h.counted_cash_poisha} decimals /></td>
                   <td>
                     {h.status === 'OPEN'
-                      ? <span className="pill pill-warn">Open</span>
+                      ? <span className="pill pill-warn">{t('co.sh.stillOpen')}</span>
                       : <Variance poisha={h.variance_poisha} />}
                   </td>
                 </tr>
               ))}
               {history.length === 0 && (
-                <tr><td colSpan={6} className="muted center">No shifts yet.</td></tr>
+                <tr><td colSpan={6} className="muted center">{t('co.sh.noneYet')}</td></tr>
               )}
             </tbody>
           </table>

@@ -75,11 +75,12 @@ func (s *Server) handleRescheduleOptions(w http.ResponseWriter, r *http.Request)
 
 	var tripID string
 	var board, drop, seatCount int
+	var paidPoisha int64
 	err := s.pool.QueryRow(ctx, `
-		SELECT b.trip_id::text, b.board_stop_seq, b.drop_stop_seq,
+		SELECT b.trip_id::text, b.board_stop_seq, b.drop_stop_seq, b.total_poisha,
 		       (SELECT count(*) FROM commerce.booking_seats bs WHERE bs.booking_id = b.booking_id)
 		  FROM commerce.bookings b WHERE b.pnr = upper($1)`, pnr).
-		Scan(&tripID, &board, &drop, &seatCount)
+		Scan(&tripID, &board, &drop, &paidPoisha, &seatCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		fail(w, 404, "booking_not_found", "We could not find a booking with that PNR.")
 		return
@@ -131,6 +132,11 @@ func (s *Server) handleRescheduleOptions(w http.ResponseWriter, r *http.Request)
 	}
 	defer rows.Close()
 
+	// Each option carries its own finished total and the difference against what
+	// was already paid. The client used to assemble those two figures itself by
+	// adding a copy of serviceFeePoisha to the fare, which meant the passenger
+	// was shown a price this service had not agreed to — and would have been
+	// shown the wrong one the day the fee changed here. Pricing is the server's.
 	type option struct {
 		TripID     string    `json:"trip_id"`
 		Brand      string    `json:"brand"`
@@ -139,6 +145,8 @@ func (s *Server) handleRescheduleOptions(w http.ResponseWriter, r *http.Request)
 		BoardSeq   int       `json:"board_seq"`
 		DropSeq    int       `json:"drop_seq"`
 		FarePoisha int64     `json:"fare_poisha"`
+		TotalPoisha int64    `json:"total_poisha"`
+		DifferencePoisha int64 `json:"difference_poisha"`
 		Available  int       `json:"available_seats"`
 		Eligible   bool      `json:"eligible"`
 	}
@@ -150,9 +158,18 @@ func (s *Server) handleRescheduleOptions(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 		o.Eligible = o.Available >= seatCount
+		// The same arithmetic handleReschedule itself performs, so the quote the
+		// passenger accepts is the quote the saga charges.
+		o.TotalPoisha = o.FarePoisha*int64(seatCount) + serviceFeePoisha
+		o.DifferencePoisha = o.TotalPoisha - paidPoisha
 		out = append(out, o)
 	}
-	writeJSON(w, 200, map[string]any{"seat_count": seatCount, "options": out})
+	writeJSON(w, 200, map[string]any{
+		"seat_count":         seatCount,
+		"paid_poisha":        paidPoisha,
+		"service_fee_poisha": serviceFeePoisha,
+		"options":            out,
+	})
 }
 
 type rescheduleRequest struct {

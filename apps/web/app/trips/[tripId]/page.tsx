@@ -1,17 +1,27 @@
 'use client';
 
-import { Suspense, use, useEffect, useState } from 'react';
+import { Suspense, use, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, ApiError, type SeatMap as SeatMapData, type Trip } from '@/lib/api';
 import { SeatMap } from '@/components/SeatMap';
-import { ErrorNotice, Loading, Stepper } from '@/components/ui';
-import { AMENITY_LABEL, dateTimeOf, duration, taka, timeOf } from '@/lib/format';
+import { RouteRail } from '@/components/RouteRail';
+import { ErrorNotice, Fascia, Loading, Stepper } from '@/components/ui';
+import { useLang, useT } from '@/components/LangProvider';
+import type { Key } from '@/lib/i18n';
 
 const MAX_SEATS = 6;
+
+const AMENITY_KEY: Record<string, Key> = {
+  WIFI: 'amenity.WIFI', CHARGING: 'amenity.CHARGING', WATER: 'amenity.WATER',
+  BLANKET: 'amenity.BLANKET', SNACK: 'amenity.SNACK',
+};
 
 function TripDetail({ tripId }: { tripId: string }) {
   const params = useSearchParams();
   const router = useRouter();
+  const t = useT();
+  const { fmt } = useLang();
+
   const board = Number(params.get('board') ?? 0);
   const drop = Number(params.get('drop') ?? 0);
 
@@ -26,7 +36,7 @@ function TripDetail({ tripId }: { tripId: string }) {
   useEffect(() => {
     setLoading(true);
     Promise.all([api.trip(tripId, board, drop), api.seatmap(tripId, board, drop)])
-      .then(([t, m]) => { setTrip(t); setMap(m); setError(''); })
+      .then(([tr, m]) => { setTrip(tr); setMap(m); setError(''); })
       .catch((e: ApiError) => setError(e.message))
       .finally(() => setLoading(false));
   }, [tripId, board, drop, nonce]);
@@ -34,10 +44,10 @@ function TripDetail({ tripId }: { tripId: string }) {
   // Someone else's hold can land while this page is open, so refresh the map
   // periodically rather than letting the passenger pick a seat that is gone.
   useEffect(() => {
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       api.seatmap(tripId, board, drop).then(setMap).catch(() => {});
     }, 15000);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
   }, [tripId, board, drop]);
 
   const toggle = (seatNo: string) =>
@@ -45,6 +55,12 @@ function TripDetail({ tripId }: { tripId: string }) {
       prev.includes(seatNo) ? prev.filter((s) => s !== seatNo)
         : prev.length >= MAX_SEATS ? prev
         : [...prev, seatNo]);
+
+  // When the poll reports a chosen seat as gone, drop it from the selection.
+  // The map names it in a banner; this keeps the summary and the total honest.
+  const dropLost = useCallback((lost: string[]) => {
+    setSelected((prev) => prev.filter((s) => !lost.includes(s)));
+  }, []);
 
   const proceed = async () => {
     if (!trip || selected.length === 0) return;
@@ -74,6 +90,17 @@ function TripDetail({ tripId }: { tripId: string }) {
   if (!trip || !map) return null;
 
   const subtotal = trip.fare_poisha * selected.length;
+  const multiLeg = trip.stops.length > 2;
+
+  const cta = (
+    <button
+      className="btn btn-primary btn-lg"
+      disabled={selected.length === 0 || holding}
+      onClick={proceed}
+    >
+      {holding ? t('trip.holding') : t('common.continue')}
+    </button>
+  );
 
   return (
     <div className="page">
@@ -84,68 +111,65 @@ function TripDetail({ tripId }: { tripId: string }) {
           <div>
             <h1 style={{ fontSize: '1.35rem' }}>{trip.brand}</h1>
             <p className="muted small" style={{ margin: 0 }}>
-              {trip.bus_type} · {trip.registration} · {dateTimeOf(trip.depart_at)}
+              {trip.bus_type} · {trip.registration} · {fmt.dateTime(trip.depart_at)}
             </p>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div className="trip-price tnum">{taka(trip.fare_poisha)}</div>
-            <div className="small muted">per seat · {duration(trip.duration_min)}</div>
+            <div className="br-fare">{fmt.taka(trip.fare_poisha)}</div>
+            <div className="small muted">{t('trip.perSeat')} · {fmt.duration(trip.duration_min)}</div>
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 360px', gap: '1.25rem', alignItems: 'start' }}
-             className="trip-layout">
+        {/* The leg being bought, painted over the whole route. */}
+        {multiLeg && (
+          <div className="card card-pad" style={{ marginBottom: '1rem' }}>
+            <RouteRail stops={trip.stops} board={board} drop={drop} />
+          </div>
+        )}
+
+        <div className="trip-layout">
           <div className="stack">
             <div className="card">
-              <div className="card-head">Choose your seats</div>
+              <div className="card-head">{t('seat.title')}</div>
               <div className="card-pad">
                 {error && <div style={{ marginBottom: '.8rem' }}><ErrorNotice message={error} /></div>}
-                <SeatMap seats={map.seats} selected={selected} onToggle={toggle} maxSeats={MAX_SEATS} disabled={holding} />
-                <p className="small muted" style={{ marginTop: '.9rem', marginBottom: 0 }}>
-                  Availability shown is for {trip.stops[board]?.name} → {trip.stops[drop]?.name} only.
-                  A seat booked on another part of this route can still be yours for this leg.
-                </p>
+                <SeatMap
+                  seats={map.seats}
+                  selected={selected}
+                  onToggle={toggle}
+                  maxSeats={MAX_SEATS}
+                  disabled={holding}
+                  multiLeg={multiLeg}
+                  onSeatsLost={dropLost}
+                />
               </div>
             </div>
 
             <div className="card">
-              <div className="card-head">Route</div>
+              <div className="card-head">{t('trip.route')}</div>
               <div className="card-pad">
-                <ol style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                  {trip.stops.map((s) => {
-                    const inLeg = s.seq >= board && s.seq <= drop;
-                    return (
-                      <li key={s.seq} className="row" style={{ gap: '.6rem', padding: '.3rem 0', opacity: inLeg ? 1 : .45 }}>
-                        <span className={`route-dot ${inLeg ? '' : 'hollow'}`} />
-                        <span className="tnum mono small">{timeOf(s.at)}</span>
-                        <span style={{ fontWeight: inLeg ? 600 : 400 }}>{s.name}</span>
-                        {s.seq === board && <span className="pill pill-brand">Board</span>}
-                        {s.seq === drop && <span className="pill pill-ok">Drop</span>}
-                      </li>
-                    );
-                  })}
-                </ol>
+                <RouteRail stops={trip.stops} board={board} drop={drop} vertical />
               </div>
             </div>
 
             {trip.amenities.length > 0 && (
               <div className="card">
-                <div className="card-head">On board</div>
+                <div className="card-head">{t('trip.amenities')}</div>
                 <div className="card-pad row" style={{ gap: '.4rem' }}>
                   {trip.amenities.map((a) => (
-                    <span className="amenity" key={a}>{AMENITY_LABEL[a] ?? a}</span>
+                    <span className="amenity" key={a}>{AMENITY_KEY[a] ? t(AMENITY_KEY[a]) : a}</span>
                   ))}
                 </div>
               </div>
             )}
           </div>
 
-          <aside className="card" style={{ position: 'sticky', top: 'calc(var(--header-h) + 1rem)' }}>
-            <div className="card-head">Your selection</div>
+          <aside className="card trip-aside">
+            <div className="card-head">{t('trip.yourSelection')}</div>
             <div className="card-pad stack">
               {selected.length === 0 ? (
                 <p className="muted small" style={{ margin: 0 }}>
-                  Pick up to {MAX_SEATS} seats from the map.
+                  {t('trip.pickUpTo', { n: MAX_SEATS })}
                 </p>
               ) : (
                 <>
@@ -155,37 +179,30 @@ function TripDetail({ tripId }: { tripId: string }) {
                     ))}
                   </div>
                   <dl className="kv">
-                    <dt>{selected.length} × {taka(trip.fare_poisha)}</dt>
-                    <dd className="tnum">{taka(subtotal)}</dd>
-                    <dt>Service fee</dt>
-                    <dd className="tnum">{taka(5000)}</dd>
-                    <dt style={{ fontWeight: 700, color: 'var(--ink)' }}>Total</dt>
-                    <dd className="tnum" style={{ fontWeight: 700 }}>{taka(subtotal + 5000)}</dd>
+                    <dt>{selected.length} × {fmt.taka(trip.fare_poisha)}</dt>
+                    <dd className="tnum">{fmt.taka(subtotal)}</dd>
                   </dl>
+                  {/* No invented service fee. The server sets it when the hold
+                      is created, and the old code's hardcoded ৳50 could and did
+                      disagree with the total shown on the very next screen. */}
+                  <p className="small muted" style={{ margin: 0 }}>{t('money.feeAtNext')}</p>
                 </>
               )}
 
-              <button
-                className="btn btn-primary btn-block btn-lg"
-                disabled={selected.length === 0 || holding}
-                onClick={proceed}
-              >
-                {holding ? 'Holding seats…' : 'Continue'}
-              </button>
-              <p className="small muted" style={{ margin: 0 }}>
-                Seats are held for 10 minutes once you continue.
-              </p>
+              {/* ONE fascia, two placements. In the aside on a wide screen, and
+                  fixed to the bottom of the viewport on a phone — the same DOM
+                  node moved by CSS, so the primary action never exists twice on
+                  the page for a passenger (or a test) to pick the wrong one. */}
+              <Fascia
+                total={selected.length ? fmt.taka(subtotal) : '—'}
+                note={selected.length ? selected.join(', ') : t('seat.none')}
+                action={cta}
+              />
+              <p className="small muted trip-holdnote">{t('trip.holdNote')}</p>
             </div>
           </aside>
         </div>
       </div>
-
-      <style>{`
-        @media (max-width: 900px) {
-          .trip-layout { grid-template-columns: 1fr !important; }
-          .trip-layout aside { position: static !important; }
-        }
-      `}</style>
     </div>
   );
 }

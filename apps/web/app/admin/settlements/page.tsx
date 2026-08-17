@@ -24,19 +24,23 @@ export default function AdminSettlementsPage() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // The table follows the operator picker above it. Without that the list is
+  // every operator's settlements at once, which reads as a firehose the moment
+  // a real database has more than a few weeks of history in it.
+  const listPath = operatorId ? `/admin/settlements?operator_id=${operatorId}` : '/admin/settlements';
+
   const load = useCallback(() => {
     Promise.all([
-      sget<{ settlements: Settlement[] }>('/admin/settlements'),
+      sget<{ settlements: Settlement[] }>(listPath),
       sget<{ operators: Operator[] }>('/admin/operators'),
     ])
       .then(([s, o]) => {
         setRows(s.settlements);
         setOperators(o.operators);
-        if (!operatorId && o.operators[0]) setOperatorId(o.operators[0].operator_id);
       })
       .catch((e: ApiError) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [operatorId]);
+  }, [listPath]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -45,7 +49,7 @@ export default function AdminSettlementsPage() {
     try {
       await spost(path, body);
       setFlash(ok ?? 'Done.');
-      const fresh = await sget<{ settlements: Settlement[] }>('/admin/settlements');
+      const fresh = await sget<{ settlements: Settlement[] }>(listPath);
       setRows(fresh.settlements);
       if (open) setOpen(fresh.settlements.find((s) => s.settlement_id === open.settlement_id) ?? null);
     } catch (e) {
@@ -72,7 +76,11 @@ export default function AdminSettlementsPage() {
           <div className="row" style={{ gap: '.6rem', alignItems: 'flex-end' }}>
             <div className="field" style={{ flex: '1 1 200px' }}>
               <label className="label" htmlFor="op">Operator</label>
+              {/* Opens on every operator, because that is what an admin came
+                  to see. Choosing one narrows the table below as well as
+                  naming the operator a calculation would run for. */}
               <select id="op" className="select" value={operatorId} onChange={(e) => setOperatorId(e.target.value)}>
+                <option value="">All operators</option>
                 {operators.map((o) => <option key={o.operator_id} value={o.operator_id}>{o.brand}</option>)}
               </select>
             </div>
@@ -84,7 +92,8 @@ export default function AdminSettlementsPage() {
               <label className="label" htmlFor="st">To</label>
               <input id="st" className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
-            <button className="btn btn-primary" disabled={busy}
+            <button className="btn btn-primary" disabled={busy || !operatorId}
+                    title={operatorId ? undefined : 'Choose an operator first'}
                     onClick={() => act('/admin/settlements/calculate',
                       { operator_id: operatorId, from, to }, 'Settlement calculated from the bookings themselves.')}>
               Calculate

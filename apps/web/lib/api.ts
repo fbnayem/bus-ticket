@@ -154,6 +154,8 @@ export interface Tracking {
 
 export interface Offer {
   code: string; title: string; description: string;
+  /** Campaign copy in Bangla. Absent when a campaign was written in one language. */
+  title_bn?: string;
   discount_pct: number; discount_poisha: number;
   max_discount_poisha: number; min_amount_poisha: number; ends_at: string | null;
 }
@@ -166,6 +168,10 @@ export interface AccountBooking {
 export interface RescheduleOption {
   trip_id: string; brand: string; bus_type: string; depart_at: string;
   board_seq: number; drop_seq: number; fare_poisha: number;
+  /** What this departure costs in full, priced by the server, not assembled here. */
+  total_poisha: number;
+  /** Positive: more to pay. Negative: money comes back. */
+  difference_poisha: number;
   available_seats: number; eligible: boolean;
 }
 
@@ -182,7 +188,9 @@ export const api = {
   search: (from: string, to: string, date: string) =>
     get<SearchResponse>(`/search?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&date=${date}`),
 
-  trip: (id: string, board: number, drop: number) =>
+  // board and drop default to 0 server-side, so callers that only need the
+  // trip's identity — brand, coach, departure — need not invent a leg.
+  trip: (id: string, board = 0, drop = 0) =>
     get<Trip>(`/trips/${id}?board=${board}&drop=${drop}`),
 
   seatmap: (id: string, board: number, drop: number) =>
@@ -191,8 +199,14 @@ export const api = {
   createHold: (b: { trip_id: string; seats: string[]; board_seq: number; drop_seq: number }) =>
     post<Hold>('/holds', { ...b, channel: 'WEB' }),
 
+  // `price` is the hold's own frozen snapshot, so a reload or a link opened on
+  // another device rebuilds the summary from the server rather than from
+  // sessionStorage — or, as it used to, from nothing at all.
   getHold: (id: string) =>
-    get<{ hold_id: string; trip_id: string; status: string; expires_at: string; seats: string[]; expired: boolean }>(`/holds/${id}`),
+    get<{
+      hold_id: string; trip_id: string; status: string; expires_at: string;
+      seats: string[]; expired: boolean; price?: Price;
+    }>(`/holds/${id}`),
 
   releaseHold: (id: string) => del<void>(`/holds/${id}`),
 
@@ -216,7 +230,8 @@ export const api = {
   settleRefund: (pnr: string) => post<{ status: string }>(`/bookings/${pnr}/settle-refund`),
 
   rescheduleOptions: (pnr: string) =>
-    get<{ seat_count: number; options: RescheduleOption[] }>(`/bookings/${pnr}/reschedule-options`),
+    get<{ seat_count: number; paid_poisha: number; service_fee_poisha: number; options: RescheduleOption[] }>(
+      `/bookings/${pnr}/reschedule-options`),
 
   reschedule: (pnr: string, b: { trip_id: string; seats: string[]; board_seq: number; drop_seq: number }) =>
     post<{

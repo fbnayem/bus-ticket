@@ -5,7 +5,8 @@ import { ApiError } from '@/lib/api';
 import { sget } from '@/lib/staff';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money, Tile } from '@/components/staff-ui';
-import { taka, dateTimeOf } from '@/lib/format';
+import { useLang } from '@/components/LangProvider';
+import { Ref } from '@/components/Ref';
 
 interface Commission {
   pnr: string; amount_poisha: number; created_at: string;
@@ -13,6 +14,7 @@ interface Commission {
 }
 
 export default function CommissionsPage() {
+  const { t, fmt } = useLang();
   const [total, setTotal] = useState(0);
   const [count, setCount] = useState(0);
   const [rows, setRows] = useState<Commission[]>([]);
@@ -30,48 +32,55 @@ export default function CommissionsPage() {
 
   return (
     <div className="stack">
-      <PageHead
-        title="Commission"
-        sub="Credited to your wallet as each ticket is issued, never as a lump adjustment"
-      />
+      <PageHead title={t('ag.nav.commissions')} sub={t('ag.cm.sub')} />
       {error && <ErrorNotice message={error} />}
 
+      {/* The total is the hero, at the size of the number it actually is —
+          an agent opens this page to answer "how much have I made", not to
+          audit a table. */}
+      <div className="card card-pad" data-fig="earned">
+        <div className="moneyline">
+          <span className="m-what">{t('ag.cm.earned')}</span>
+          <span className="m-amount" style={{ fontSize: '2.4rem' }}>{fmt.taka(total)}</span>
+        </div>
+      </div>
+
       <div className="tiles">
-        <Tile k="Earned to date" n={taka(total)} />
-        <Tile k="Tickets" n={count} />
-        <Tile k="Average per ticket" n={count ? taka(Math.round(total / count)) : '—'} />
+        <Tile k={t('ag.cm.tickets')} n={count} />
+        <Tile k={t('ag.cm.average')} n={count ? fmt.taka(Math.round(total / count)) : '—'} />
       </div>
 
       <div className="table-wrap">
         <table className="data">
           <thead>
-            <tr><th>PNR</th><th>Rule applied</th><th>Earned</th><th className="num">Amount</th></tr>
+            <tr>
+              <th>{t('co.s.pnr')}</th><th>{t('ag.cm.rule')}</th>
+              <th>{t('ag.when')}</th><th className="num">{t('ag.amount')}</th>
+            </tr>
           </thead>
           <tbody>
             {rows.map((c) => (
               <tr key={c.pnr}>
-                <td className="mono">{c.pnr}</td>
+                <td><Ref value={c.pnr} /></td>
                 <td className="muted small">
-                  {c.rule_kind === 'PCT' ? `${(c.rule_bp / 100).toFixed(2)}% of fare` : 'Flat rate'}
+                  {c.rule_kind === 'PCT'
+                    ? t('ag.cm.pct', { pct: (c.rule_bp / 100).toFixed(2) })
+                    : t('ag.cm.flat')}
                 </td>
-                <td className="muted small">{dateTimeOf(c.created_at)}</td>
+                <td className="muted small">{fmt.dateTime(c.created_at)}</td>
                 <td className="num" style={{ color: 'var(--ok)' }}>
                   <Money poisha={c.amount_poisha} decimals />
                 </td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={4} className="muted center">No commission yet.</td></tr>
+              <tr><td colSpan={4} className="muted center">{t('ag.cm.empty')}</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
-      <p className="small muted">
-        The rule that applies to a sale is the most specific one configured: a
-        rule naming both your agency and the operator beats one naming the
-        operator alone.
-      </p>
+      <p className="small muted">{t('ag.cm.foot')}</p>
     </div>
   );
 }

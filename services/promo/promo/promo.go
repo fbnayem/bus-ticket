@@ -57,16 +57,16 @@ type Quote struct {
 }
 
 type campaign struct {
-	id, code, title, kind             string
-	pct                               int
-	flat, maxDiscount, minAmount      int64
-	operatorID, routeID               *string
-	channel, provider                 *string
-	maxRedemptions                    *int
-	redeemed, perUserLimit            int
-	startsAt                          time.Time
-	endsAt                            *time.Time
-	active                            bool
+	id, code, title, kind        string
+	pct                          int
+	flat, maxDiscount, minAmount int64
+	operatorID, routeID          *string
+	channel, provider            *string
+	maxRedemptions               *int
+	redeemed, perUserLimit       int
+	startsAt                     time.Time
+	endsAt                       *time.Time
+	active                       bool
 }
 
 func (s *Store) load(ctx context.Context, code string) (*campaign, error) {
@@ -272,8 +272,12 @@ func (s *Store) Release(ctx context.Context, bookingID string) error {
 // ---------------------------------------------------------------- listing --
 
 type Offer struct {
-	Code              string     `json:"code"`
-	Title             string     `json:"title"`
+	Code  string `json:"code"`
+	Title string `json:"title"`
+	// Campaign copy in Bangla, empty when a campaign was created without it.
+	// The reader's side decides which to show; the server does not guess a
+	// language from a request it may be serving to a cache.
+	TitleBn           string     `json:"title_bn,omitempty"`
 	Kind              string     `json:"kind"`
 	DiscountPct       int        `json:"discount_pct"`
 	DiscountPoisha    int64      `json:"discount_poisha"`
@@ -286,7 +290,7 @@ type Offer struct {
 
 func (s *Store) Offers(ctx context.Context) ([]Offer, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT COALESCE(code,''), title, kind, discount_pct, discount_poisha,
+		SELECT COALESCE(code,''), title, COALESCE(title_bn,''), kind, discount_pct, discount_poisha,
 		       max_discount_poisha, min_amount_poisha,
 		       CASE WHEN max_redemptions IS NULL THEN NULL ELSE max_redemptions - redeemed END,
 		       redeemed, ends_at
@@ -300,7 +304,7 @@ func (s *Store) Offers(ctx context.Context) ([]Offer, error) {
 	out := []Offer{}
 	for rows.Next() {
 		var o Offer
-		if err := rows.Scan(&o.Code, &o.Title, &o.Kind, &o.DiscountPct, &o.DiscountPoisha,
+		if err := rows.Scan(&o.Code, &o.Title, &o.TitleBn, &o.Kind, &o.DiscountPct, &o.DiscountPoisha,
 			&o.MaxDiscountPoisha, &o.MinAmountPoisha, &o.Remaining, &o.Redeemed, &o.EndsAt); err != nil {
 			return nil, err
 		}

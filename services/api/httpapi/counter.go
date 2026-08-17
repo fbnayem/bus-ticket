@@ -97,6 +97,14 @@ func (s *Server) handleCounterContext(w http.ResponseWriter, r *http.Request, id
 		`SELECT count(*) FROM counter.quota_items WHERE counter_id=$1::uuid AND status='ALLOCATED'`,
 		counterID).Scan(&quota)
 	out["quota_seats"] = quota
+
+	// The POS used to carry its own `const SERVICE_FEE = 5000` and quote the
+	// clerk a total assembled in the browser. The clerk then took that many taka
+	// in CASH across the counter. A copied constant is a bad idea anywhere; in
+	// the one place where a person physically hands over notes against the
+	// figure on screen, and a drawer has to balance to it at close, it is a
+	// defect waiting for the day the fee changes on this side only.
+	out["service_fee_poisha"] = serviceFeePoisha
 	writeJSON(w, 200, out)
 }
 

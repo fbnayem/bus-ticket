@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/api';
 import { sget, spost } from '@/lib/staff';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead } from '@/components/staff-ui';
-import { timeOf } from '@/lib/format';
+import { useLang } from '@/components/LangProvider';
 
 // The boarding scanner.
 //
@@ -39,6 +39,7 @@ export default function ScanPage() {
 }
 
 function Scanner() {
+  const { t, fmt } = useLang();
   const params = useSearchParams();
   const [tripId, setTripId] = useState(params.get('trip') ?? '');
   const [trips, setTrips] = useState<Trip[]>([]);
@@ -130,12 +131,12 @@ function Scanner() {
               result: row.ticket_status === 'BOARDED' ? 'ALREADY_BOARDED' : 'BOARDED',
               seat_no: row.seat_no, pnr: row.pnr, passenger: row.passenger, queued: true,
               message: row.ticket_status === 'BOARDED'
-                ? `Already marked boarded before we lost the line — seat ${row.seat_no}.`
-                : `Seat ${row.seat_no}. Queued — this will be confirmed when the signal returns.`,
+                ? t('dr.offAlready', { seat: row.seat_no })
+                : t('dr.offBoarded', { seat: row.seat_no }),
             }
           : {
               result: 'NOT_FOUND', seat_no: '', pnr: payload.pnr, queued: true,
-              message: 'Not on the manifest we downloaded before departure. Check by hand.',
+              message: t('dr.offMissing'),
             };
         if (local.result === 'BOARDED') {
           writeQueue([...readQueue(), payload]);
@@ -152,18 +153,22 @@ function Scanner() {
   };
 
   const tone = (r: string) => (r === 'BOARDED' ? 'ok' : r === 'ALREADY_BOARDED' ? 'warn' : 'bad');
+  const verdictOf = (r: string) =>
+    r === 'BOARDED' ? t('dr.scanOk')
+    : r === 'ALREADY_BOARDED' ? t('dr.scanAlready')
+    : t('dr.scanBad');
 
   return (
     <div className="stack">
       <PageHead
-        title="Board passengers"
-        sub="Type or scan the PNR. Works with no signal against the manifest downloaded before departure."
+        title={t('dr.nav.scan')}
+        sub={t('dr.scanSub')}
         actions={
           <select className="select" style={{ width: 240 }} value={tripId}
-                  onChange={(e) => setTripId(e.target.value)} aria-label="Trip">
-            {trips.map((t) => (
-              <option key={t.trip_id} value={t.trip_id}>
-                {timeOf(t.depart_at)} · {t.route}
+                  onChange={(e) => setTripId(e.target.value)} aria-label={t('dr.scanTrip')}>
+            {trips.map((tr) => (
+              <option key={tr.trip_id} value={tr.trip_id}>
+                {fmt.time(tr.depart_at)} · {tr.route}
               </option>
             ))}
           </select>
@@ -173,35 +178,46 @@ function Scanner() {
       {error && <ErrorNotice message={error} />}
       {queued > 0 && (
         <div className="offline-bar">
-          <span>{queued} scan{queued === 1 ? '' : 's'} recorded offline, waiting to sync.</span>
-          <button className="btn btn-sm btn-primary" onClick={() => void flush()}>Sync now</button>
+          <span>
+            {queued === 1 ? t('dr.waitingScans1') : t('dr.waitingScans', { count: queued })}
+          </span>
+          <button className="btn btn-sm btn-primary" onClick={() => void flush()}>{t('dr.sendNow')}</button>
         </div>
       )}
 
       <form className="card card-pad" onSubmit={scan}>
         <div className="row" style={{ gap: '.6rem', alignItems: 'flex-end' }}>
           <div className="field" style={{ flex: '1 1 200px' }}>
-            <label className="label" htmlFor="code">PNR</label>
+            <label className="label" htmlFor="code">{t('find.label')}</label>
             <input id="code" ref={inputRef} className="input mono" autoFocus value={code}
                    onChange={(e) => setCode(e.target.value)} placeholder="K7W4VP"
                    style={{ fontSize: '1.2rem', letterSpacing: '.08em' }} />
           </div>
           <div className="field" style={{ flex: '0 1 130px' }}>
-            <label className="label" htmlFor="seat">Seat (optional)</label>
+            <label className="label" htmlFor="seat">{t('dr.seatOptional')}</label>
             <input id="seat" className="input mono" value={seat} onChange={(e) => setSeat(e.target.value)}
                    placeholder="A1" />
           </div>
-          <button className="btn btn-primary btn-lg" type="submit">Check in</button>
+          <button className="btn btn-primary btn-lg" type="submit" data-act="scan">
+            {t('dr.checkIn')}
+          </button>
         </div>
       </form>
 
+      {/*
+        The verdict is the INSTRUCTION, not the record's new state. A helper in
+        a doorway has half a second before the next passenger pushes forward,
+        and "BOARDED" is a database word that answers the wrong question. The
+        server's own sentence stays underneath for the cases that need one.
+      */}
       {last && (
-        <div className={`verdict ${tone(last.result)}`}>
+        <div className={`verdict ${tone(last.result)}`} data-result={last.result}>
           <div>
-            <strong>{last.result.replace(/_/g, ' ')}</strong>
+            <strong>{verdictOf(last.result)}</strong>
+            {last.seat_no && <div className="verdict-seat">{t('dr.seatIs', { seat: last.seat_no })}</div>}
             <div>{last.message}</div>
             {last.passenger && <div className="small">{last.passenger}</div>}
-            {last.queued && <div className="small">Recorded on this device — not yet confirmed centrally.</div>}
+            {last.queued && <div className="small">{t('dr.notConfirmed')}</div>}
           </div>
         </div>
       )}
@@ -210,11 +226,18 @@ function Scanner() {
         <div className="card card-pad stack-sm">
           <div className="row-between">
             <h3 style={{ marginBottom: 0 }}>{manifest.trip.route}</h3>
-            <span className="small muted">{manifest.boarded} of {manifest.total} boarded</span>
+            <span className="small muted">
+              {t('dr.ofTotal', { done: manifest.boarded, total: manifest.total })}
+            </span>
           </div>
           <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
             <table className="data">
-              <thead><tr><th>Seat</th><th>Passenger</th><th>PNR</th><th>Boarded</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>{t('co.seats')}</th><th>{t('co.paxName')}</th>
+                  <th>{t('find.label')}</th><th>{t('dr.boarded')}</th>
+                </tr>
+              </thead>
               <tbody>
                 {manifest.passengers.map((p) => (
                   <tr key={p.seat_no + p.pnr}>
@@ -223,7 +246,7 @@ function Scanner() {
                     <td className="mono small">{p.pnr}</td>
                     <td>
                       {p.ticket_status === 'BOARDED'
-                        ? <span className="pill pill-ok">yes</span>
+                        ? <span className="pill pill-ok">{t('dr.boarded')}</span>
                         : <span className="pill">—</span>}
                     </td>
                   </tr>
@@ -236,7 +259,7 @@ function Scanner() {
 
       {history.length > 0 && (
         <div className="card card-pad stack-sm">
-          <h3 style={{ marginBottom: 0 }}>Recent scans on this device</h3>
+          <h3 style={{ marginBottom: 0 }}>{t('dr.recent')}</h3>
           <table className="data">
             <tbody>
               {history.map((h, i) => (
@@ -245,10 +268,12 @@ function Scanner() {
                   <td className="mono">{h.seat_no}</td>
                   <td>
                     <span className={`pill ${h.result === 'BOARDED' ? 'pill-ok' : h.result === 'ALREADY_BOARDED' ? 'pill-warn' : 'pill-danger'}`}>
-                      {h.result.replace(/_/g, ' ').toLowerCase()}
+                      {verdictOf(h.result)}
                     </span>
                   </td>
-                  <td className="small muted">{h.queued ? 'queued' : 'confirmed'}</td>
+                  <td className="small muted">
+                    {h.queued ? t('dr.queuedShort') : t('dr.confirmedShort')}
+                  </td>
                 </tr>
               ))}
             </tbody>

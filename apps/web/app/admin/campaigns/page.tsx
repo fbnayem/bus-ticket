@@ -16,6 +16,7 @@ import { taka } from '@/lib/format';
 interface Campaign {
   code: string;
   title: string;
+  title_bn?: string;
   kind: string;
   discount_pct: number;
   discount_poisha: number;
@@ -41,7 +42,7 @@ export default function CampaignsPage() {
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [error, setError] = useState('');
   const [flash, setFlash] = useState('');
-  const [form, setForm] = useState({ code: '', title: '', discount_pct: 10, max: 20000, min: 0, cap: '', days: 30 });
+  const [form, setForm] = useState({ code: '', title: '', title_bn: '', discount_pct: 10, max: 20000, min: 0, cap: '', days: 30 });
 
   const load = useCallback(() => {
     Promise.all([
@@ -89,6 +90,9 @@ export default function CampaignsPage() {
                   <td className="mono"><strong>{c.code}</strong></td>
                   <td>
                     <div>{c.title}</div>
+                    {c.title_bn
+                      ? <div lang="bn">{c.title_bn}</div>
+                      : <div className="small pill pill-warn">no Bangla copy</div>}
                     <div className="small muted">
                       {c.discount_pct > 0 ? `${c.discount_pct}% off` : taka(c.discount_poisha) + ' off'}
                       {c.max_discount_poisha > 0 && `, up to ${taka(c.max_discount_poisha)}`}
@@ -123,7 +127,8 @@ export default function CampaignsPage() {
             setFlash('');
             try {
               await spost('/admin/campaigns', {
-                code: form.code, title: form.title, kind: form.cap ? 'LIMITED' : 'COUPON',
+                code: form.code, title: form.title, title_bn: form.title_bn,
+                kind: form.cap ? 'LIMITED' : 'COUPON',
                 discount_pct: Number(form.discount_pct),
                 max_discount_poisha: Number(form.max),
                 min_amount_poisha: Number(form.min),
@@ -131,7 +136,7 @@ export default function CampaignsPage() {
                 per_user_limit: 1, days: Number(form.days),
               });
               setFlash(`${form.code.toUpperCase()} created.`);
-              setForm({ ...form, code: '', title: '' });
+              setForm({ ...form, code: '', title: '', title_bn: '' });
               load();
             } catch (err) { setFlash((err as ApiError).message); }
           }}
@@ -143,10 +148,19 @@ export default function CampaignsPage() {
                 onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} />
             </div>
             <div style={{ flex: '2 1 240px' }}>
-              <label htmlFor="title">Title</label>
+              <label htmlFor="title">Title (English)</label>
               <input id="title" required value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })} />
             </div>
+          </div>
+          {/* Most passengers read this in Bangla. Leaving it empty is allowed
+              and shows the English line to everyone, which is worse than
+              writing one sentence twice. */}
+          <div>
+            <label htmlFor="title_bn">Title (Bangla)</label>
+            <input id="title_bn" lang="bn" value={form.title_bn}
+              placeholder="ঈদ সফর — 15% ছাড়"
+              onChange={(e) => setForm({ ...form, title_bn: e.target.value })} />
           </div>
           <div className="row" style={{ gap: '.6rem', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 120px' }}>
