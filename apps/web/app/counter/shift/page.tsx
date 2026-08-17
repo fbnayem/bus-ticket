@@ -7,6 +7,7 @@ import { queue } from '@/lib/offline';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money, Tile, Variance } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
+import { errorText } from '@/lib/i18n';
 
 // The cash drawer.
 //
@@ -58,7 +59,7 @@ export default function ShiftPage() {
       setHistory(h.shifts);
       if (c.shift) setCounted(String(c.shift.expected_cash_poisha / 100));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : t('co.sh.failLoad'));
+      setError(errorText(t, e, 'co.sh.failLoad'));
     } finally {
       setLoading(false);
     }
@@ -73,7 +74,7 @@ export default function ShiftPage() {
       setFlash(t('co.sh.openedFlash'));
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : t('co.sh.failOpen'));
+      setError(errorText(t, e, 'co.sh.failOpen'));
     } finally { setBusy(false); }
   };
 
@@ -102,7 +103,7 @@ export default function ShiftPage() {
       setNote('');
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : t('co.sh.failClose'));
+      setError(errorText(t, e, 'co.sh.failClose'));
     } finally { setBusy(false); }
   };
 

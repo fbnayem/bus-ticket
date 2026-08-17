@@ -159,6 +159,36 @@ try {
   check('one ticket row per passenger', rows === 2, `${rows} rows`);
   await shot('09-ticket');
 
+  console.log('\n=== 8b. THE TICKET OPENS WITH NO NETWORK ===');
+  // The homepage promises this in both languages — "Your ticket works without
+  // signal" — and the FAQ repeats it. The page used to fetch the booking on
+  // mount and show an error when that failed, so the promise held on the app
+  // and broke on the website making it.
+  //
+  // The QR here is a signed token the crew's scanner verifies against the
+  // platform at the door, so a copy held on the device cannot board anybody who
+  // should not board. That is what makes caching this page safe when caching a
+  // seat map would not be.
+  check('the device says it kept a copy',
+    await page.evaluate(() => {
+      const raw = localStorage.getItem('jatra.tickets');
+      return !!raw && JSON.parse(raw).some((b) => b.pnr);
+    }));
+
+  // Cut the line at the browser, then reload from scratch — a reload is exactly
+  // what somebody does when a page looks stuck at a bus stand.
+  await ctx.setOffline(true);
+  await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => undefined);
+  await page.waitForSelector('.qr-box svg', { timeout: 20000 });
+  const offlinePaths = await page.locator('.qr-box svg path, .qr-box svg rect').count();
+  check('the QR still renders with the network cut', offlinePaths > 0, `${offlinePaths} svg nodes`);
+  check('the ticket number is still on screen',
+    (await page.locator('.pnr').innerText()).includes(pnr));
+  check('and it says the copy came from this device',
+    await page.getByTestId('ticket-from-device').isVisible());
+  await shot('09b-ticket-offline');
+  await ctx.setOffline(false);
+
   console.log('\n=== 9. TRACKING ===');
   await page.goto(`${WEB}/tracking/${pnr}`, { waitUntil: 'networkidle' });
   check('tracking renders', await page.locator('text=Where is my bus?').isVisible());
@@ -246,9 +276,13 @@ try {
   console.log('\n=== 15. NO CONSOLE ERRORS ===');
   // A 401 on /account while signed out is the correct answer, not a fault, so
   // it is excluded — the check is for errors the application did not intend.
+  // Step 8b cuts the network on purpose, so every request in flight at that
+  // moment fails on purpose too. Those are the test working, not the product
+  // breaking — excluded for the same reason the 401 above is.
   const real = errors.filter((e) =>
     !/favicon|Download the React DevTools/i.test(e) &&
-    !/401 \(Unauthorized\)/.test(e));
+    !/401 \(Unauthorized\)/.test(e) &&
+    !/ERR_INTERNET_DISCONNECTED|Failed to fetch|NetworkError/i.test(e));
   check('no uncaught page errors', real.length === 0, real.slice(0, 3).join(' | '));
 
 } catch (e) {

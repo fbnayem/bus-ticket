@@ -7,17 +7,47 @@ import { QrCode } from '@/components/QrCode';
 import { Ref } from '@/components/Ref';
 import { ErrorNotice, Loading, StatusPill } from '@/components/ui';
 import { useLang, useT } from '@/components/LangProvider';
-import { STRINGS, type Key } from '@/lib/i18n';
+import { errorText, STRINGS, type Key } from '@/lib/i18n';
+import { recallTicket, rememberTicket } from '@/lib/offlineTickets';
+import { TicketOffline } from '@/components/TicketOffline';
 
 export default function TicketPage({ params }: { params: Promise<{ pnr: string }> }) {
   const { pnr } = use(params);
   const t = useT();
   const { fmt } = useLang();
   const [booking, setBooking] = useState<Booking | null>(null);
+  const [fromDevice, setFromDevice] = useState(false);
   const [error, setError] = useState('');
 
+  // The device first, the platform second — the same order the app uses, and
+  // for the same reason. This page is read at a bus door, which is exactly
+  // where there is no signal, and the homepage promises in both languages that
+  // it works there. It used to fetch and then show an error, so the promise was
+  // kept by the app and broken by the website making it.
+  //
+  // Reading the cached copy is not a shortcut past the platform: the fetch
+  // still runs, the fresh answer replaces what is drawn, and it is written back
+  // so a cancellation seen once is remembered. What changes is only what
+  // happens when the fetch cannot finish.
   useEffect(() => {
-    api.booking(pnr).then(setBooking).catch((e: ApiError) => setError(e.message));
+    const cached = recallTicket(pnr);
+    if (cached) {
+      setBooking(cached);
+      setFromDevice(true);
+    }
+    api.booking(pnr)
+      .then((b) => {
+        setBooking(b);
+        setFromDevice(false);
+        rememberTicket(b);
+      })
+      .catch((e: ApiError) => {
+        // A copy in hand outranks a refusal. Only say nothing when we have
+        // nothing — this device has never seen this ticket.
+        if (!cached) setError(errorText(t, e));
+      });
+    // `t` is stable for a given language and is not a reason to refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pnr]);
 
   if (error) return <div className="page container-narrow"><ErrorNotice message={error} /></div>;
@@ -92,6 +122,7 @@ export default function TicketPage({ params }: { params: Promise<{ pnr: string }
                   <span className="small muted center">{t('ticket.issuedOnPay')}</span>
                 </div>}
             <span className="small muted">{t('ticket.showAtGate')}</span>
+            <TicketOffline fromDevice={fromDevice} />
           </div>
         </div>
 

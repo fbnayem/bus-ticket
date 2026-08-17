@@ -7,8 +7,7 @@ import { sget, spost } from '@/lib/staff';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Bar } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
-import { STRINGS, type Key } from '@/lib/i18n';
-
+import { STRINGS, errorText, type Key } from '@/lib/i18n';
 // The driver's trips.
 //
 // Crew can move a trip through the states they are actually in a position to
@@ -40,7 +39,7 @@ export default function DriverTripsPage() {
   const load = useCallback(() => {
     sget<{ trips: Trip[] }>('/driver/trips')
       .then((r) => setTrips(r.trips))
-      .catch((e: ApiError) => setError(e.message))
+      .catch((e: ApiError) => setError(errorText(t, e)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -59,7 +58,7 @@ export default function DriverTripsPage() {
       setFlash(say(`dr.done.${next}`, next.replace(/_/g, ' ').toLowerCase()));
       load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'That could not be recorded.');
+      setError(errorText(t, e, 'dr.stateFail'));
     }
   };
 

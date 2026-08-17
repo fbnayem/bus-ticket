@@ -7,6 +7,7 @@ import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money, Tile } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
 import { Ref } from '@/components/Ref';
+import { errorText } from '@/lib/i18n';
 
 interface Commission {
   pnr: string; amount_poisha: number; created_at: string;
@@ -24,7 +25,7 @@ export default function CommissionsPage() {
   useEffect(() => {
     sget<{ total_poisha: number; count: number; commissions: Commission[] }>('/agent/commissions')
       .then((r) => { setTotal(r.total_poisha); setCount(r.count); setRows(r.commissions); })
-      .catch((e: ApiError) => setError(e.message))
+      .catch((e: ApiError) => setError(errorText(t, e)))
       .finally(() => setLoading(false));
   }, []);
 

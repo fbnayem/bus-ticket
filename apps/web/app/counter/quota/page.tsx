@@ -9,6 +9,7 @@ import { ErrorNotice } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
 import { isoDate } from '@/lib/format';
+import { errorText } from '@/lib/i18n';
 
 // Seats held back for this counter.
 //
@@ -40,7 +41,7 @@ export default function QuotaPage() {
       // Cached so the seats are visible with no connection at all.
       quotaCache.set(r.quota);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : t('co.q.failLoad'));
+      setError(errorText(t, e, 'co.q.failLoad'));
     }
   }, [t]);
 
@@ -52,7 +53,7 @@ export default function QuotaPage() {
     try {
       setResults((await api.search(from, to, date)).results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('co.q.failSearch'));
+      setError(errorText(t, err, 'co.q.failSearch'));
     }
   };
 
@@ -74,7 +75,7 @@ export default function QuotaPage() {
       setSeats((await api.seatmap(trip.trip_id, trip.board_seq, trip.drop_seq)).seats);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('co.q.failReserve'));
+      setError(errorText(t, err, 'co.q.failReserve'));
     } finally {
       setBusy(false);
     }
@@ -89,7 +90,7 @@ export default function QuotaPage() {
       setFlash(t('co.q.released', { seat: q.seat_no }));
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('co.q.failRelease'));
+      setError(errorText(t, err, 'co.q.failRelease'));
     }
   };
 

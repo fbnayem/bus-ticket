@@ -10,6 +10,7 @@ import { PageHead, Money } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
 import { Ref } from '@/components/Ref';
 import { isoDate } from '@/lib/format';
+import { errorText } from '@/lib/i18n';
 
 // An agent sale commits two things atomically and in this order: the seat, then
 // the money. If the wallet has nothing left, the seat is handed straight back —
@@ -60,7 +61,7 @@ export default function AgentSellPage() {
     try {
       setResults((await api.search(from, to, date)).results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Search failed.');
+      setError(errorText(t, err, 'err.search_failed'));
     }
   };
 
@@ -87,7 +88,7 @@ export default function AgentSellPage() {
       setPicked([]); setNames({}); setPhone('');
     } catch (err) {
       const e = err as ApiError;
-      setError(e.message);
+      setError(errorText(t, e));
       if (e.status === 409) {
         setPicked([]);
         setSeats((await api.seatmap(trip.trip_id, trip.board_seq, trip.drop_seq)).seats);

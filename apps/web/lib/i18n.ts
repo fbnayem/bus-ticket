@@ -302,6 +302,11 @@ const S = {
   'ticket.confirmed':      { en: 'Confirmed',                bn: 'নিশ্চিত হয়েছে' },
   'ticket.arriveEarly':    { en: 'Please reach the counter 30 minutes before departure.', bn: 'ছাড়ার ৩০ মিনিট আগে কাউন্টারে পৌঁছান।' },
   'ticket.bookingRef':     { en: 'Booking reference',        bn: 'বুকিং রেফারেন্স' },
+  // Said in the app's words, because it is the same promise on a second screen.
+  'ticket.onThisDevice':   { en: 'Saved on this device — this opens without a network.',
+                             bn: 'এই ডিভাইসে জমা আছে — নেটওয়ার্ক ছাড়াই খুলবে।' },
+  'ticket.offlineUnavailable': { en: 'This browser cannot keep the ticket for offline use. Take a screenshot or print it before you travel.',
+                             bn: 'এই ব্রাউজারে টিকিটটি অফলাইনে রাখা যাচ্ছে না। যাত্রার আগে স্ক্রিনশট নিন বা প্রিন্ট করে নিন।' },
   'ticket.from':           { en: 'From',                     bn: 'যেখান থেকে' },
   'ticket.to':             { en: 'To',                       bn: 'যেখানে' },
   'ticket.bus':            { en: 'Bus',                      bn: 'বাস' },
@@ -401,6 +406,81 @@ const S = {
   'err.seatGoneHint':      { en: 'Nothing was charged. Please pick another seat.', bn: 'কোনো টাকা কাটা হয়নি। অন্য আসন বাছুন।' },
   'err.sessionExpired':    { en: 'You were signed out',      bn: 'আপনি সাইন আউট হয়ে গেছেন' },
   'err.notFound':          { en: 'We could not find that booking', bn: 'বুকিংটি খুঁজে পাওয়া যায়নি' },
+
+  /* ------------------------------------------- refusals, keyed by API code
+   *
+   * The platform answers `{ error: <code>, message: <English> }`. The message is
+   * for a log; the code is what a screen can translate. Handing the message
+   * straight to the reader is why the frontline workplaces — Bangla by product
+   * decision, for staff recruited on the job rather than on their English —
+   * spoke Bangla until the moment something went wrong, and then didn't.
+   *
+   * Everything a driver, counter clerk or agent can provoke is listed here. A
+   * code with no entry falls through to the platform's own sentence, which is
+   * the right trade for a rare or specific refusal and the wrong one for the
+   * refusals people actually hit. See `errorText`.
+   */
+  'err.timeout':           { en: 'The service did not answer in time. Check the connection and try again.', bn: 'সময়মতো উত্তর আসেনি। সংযোগ দেখে আবার চেষ্টা করুন।' },
+  'err.bad_response':      { en: 'The service returned something unexpected.', bn: 'সার্ভিস থেকে অপ্রত্যাশিত উত্তর এসেছে।' },
+  'err.bad_request':       { en: 'That request could not be read.', bn: 'অনুরোধটি বোঝা যায়নি।' },
+  'err.query_failed':      { en: 'That could not be loaded. Try again.', bn: 'তথ্য আনা যায়নি। আবার চেষ্টা করুন।' },
+  'err.unauthenticated':   { en: 'Your session has ended. Please sign in again.', bn: 'আপনার সেশন শেষ হয়ে গেছে। আবার সাইন ইন করুন।' },
+  'err.forbidden':         { en: 'Your role does not include permission to do that.', bn: 'এই কাজের অনুমতি আপনার দায়িত্বে নেই।' },
+  'err.rate_limited':      { en: 'Too many tries. Wait a moment and try again.', bn: 'অনেকবার চেষ্টা হয়েছে। একটু পরে আবার করুন।' },
+  'err.not_found':         { en: 'That could not be found.',  bn: 'সেটি খুঁজে পাওয়া যায়নি।' },
+
+  /* sign-in */
+  'err.bad_credentials':   { en: 'That email and password do not match.', bn: 'এই ইমেইল আর পাসওয়ার্ড মিলছে না।' },
+  'err.account_locked':    { en: 'This account is locked. Ask an administrator to unlock it.', bn: 'এই অ্যাকাউন্ট লক করা আছে। খুলে দিতে প্রশাসককে বলুন।' },
+  'err.login_failed':      { en: 'Sign-in is unavailable right now.', bn: 'এখন সাইন ইন করা যাচ্ছে না।' },
+  'err.mfa_required':      { en: 'Enter the six-digit code from your authenticator app.', bn: 'আপনার অথেনটিকেটর অ্যাপের ছয় অঙ্কের কোডটি দিন।' },
+  'err.mfa_invalid':       { en: 'That code is not right. Try the next one.', bn: 'কোডটি ঠিক নয়। পরেরটি এলে চেষ্টা করুন।' },
+  'err.mfa_replayed':      { en: 'That code has already been used. Wait for the next one.', bn: 'এই কোডটি একবার ব্যবহার হয়ে গেছে। পরেরটির জন্য অপেক্ষা করুন।' },
+  'err.mfa_setup_failed':  { en: 'Two-step sign-in could not be set up.', bn: 'দুই ধাপের সাইন ইন চালু করা গেল না।' },
+
+  /* seats, fares and booking — the same inventory service every channel calls */
+  'err.seat_taken':        { en: 'One of those seats has just gone. Refresh and try again.', bn: 'আসনগুলোর একটি এইমাত্র চলে গেছে। রিফ্রেশ করে আবার চেষ্টা করুন।' },
+  'err.hold_failed':       { en: 'Those seats could not be held.', bn: 'আসনগুলো ধরে রাখা গেল না।' },
+  'err.release_failed':    { en: 'Those seats could not be released.', bn: 'আসনগুলো ছাড়া গেল না।' },
+  'err.no_seats':          { en: 'Choose at least one seat.', bn: 'অন্তত একটি আসন বাছুন।' },
+  'err.too_many_seats':    { en: 'You can book up to 6 seats at a time.', bn: 'একবারে সর্বোচ্চ 6টি আসন নেওয়া যায়।' },
+  'err.no_fare':           { en: 'No fare is published for that journey.', bn: 'এই যাত্রার জন্য কোনো ভাড়া দেওয়া নেই।' },
+  'err.bad_segments':      { en: 'That journey is not valid.', bn: 'এই যাত্রাপথটি ঠিক নয়।' },
+  'err.booking_failed':    { en: 'The booking could not be created.', bn: 'বুকিংটি তৈরি করা গেল না।' },
+  'err.payment_failed':    { en: 'Payment could not be recorded. Nothing has been charged.', bn: 'পেমেন্ট লেখা গেল না। কোনো টাকা কাটা হয়নি।' },
+  'err.phone_required':    { en: 'Take a mobile number so the passenger gets their ticket.', bn: 'যাত্রীর মোবাইল নম্বরটি নিন, নইলে টিকিট পৌঁছাবে না।' },
+
+  /* counter */
+  'err.no_counter':        { en: 'This account is not attached to a counter.', bn: 'এই অ্যাকাউন্ট কোনো কাউন্টারের সাথে যুক্ত নয়।' },
+  'err.counter_required':  { en: 'Choose a counter.',        bn: 'একটি কাউন্টার বাছুন।' },
+  'err.shift_required':    { en: 'Open a shift before taking cash.', bn: 'ক্যাশ নেওয়ার আগে শিফট খুলুন।' },
+  'err.shift_already_open':{ en: 'A shift is already open on this counter. Close it first.', bn: 'এই কাউন্টারে একটি শিফট খোলা আছে। আগে সেটি বন্ধ করুন।' },
+  'err.shift_not_open':    { en: 'That shift is not open.',  bn: 'শিফটটি খোলা নেই।' },
+  'err.bad_float':         { en: 'The opening float cannot be negative.', bn: 'শুরুর ক্যাশ ঋণাত্মক হতে পারে না।' },
+  'err.close_failed':      { en: 'The shift could not be closed.', bn: 'শিফটটি বন্ধ করা গেল না।' },
+  'err.quota_failed':      { en: 'Those seats could not be reserved.', bn: 'আসনগুলো রেখে দেওয়া গেল না।' },
+  'err.quota_too_large':   { en: 'That is more seats than the quota allows.', bn: 'কোটায় এতগুলো আসন রাখা যাবে না।' },
+
+  /* agent */
+  'err.no_agency':         { en: 'This account is not attached to an agency.', bn: 'এই অ্যাকাউন্ট কোনো এজেন্সির সাথে যুক্ত নয়।' },
+  'err.no_wallet':         { en: 'No wallet exists for this agency.', bn: 'এই এজেন্সির কোনো ওয়ালেট নেই।' },
+  'err.insufficient_balance': { en: 'The wallet does not have enough balance or credit.', bn: 'ওয়ালেটে যথেষ্ট টাকা বা ক্রেডিট নেই।' },
+  'err.wallet_failed':     { en: 'The wallet could not be charged. No seats were taken.', bn: 'ওয়ালেট থেকে কাটা গেল না। কোনো আসন নেওয়া হয়নি।' },
+  'err.capture_failed':    { en: 'The wallet charge failed. Nothing has been issued.', bn: 'ওয়ালেট থেকে টাকা কাটা যায়নি। কিছুই ইস্যু হয়নি।' },
+  'err.bad_amount':        { en: 'Enter the amount you have sent.', bn: 'আপনি যত টাকা পাঠিয়েছেন সেটি লিখুন।' },
+  'err.recharge_failed':   { en: 'The recharge could not be recorded.', bn: 'রিচার্জটি লেখা গেল না।' },
+  // The PNR arrives as `ref`, not inside the sentence, so it survives translation.
+  'err.settle_failed':     { en: 'The ticket could not be issued. Quote this PNR to support: {ref}', bn: 'টিকিট ইস্যু করা গেল না। এই PNR নিয়ে সাপোর্টে যোগাযোগ করুন: {ref}' },
+
+  /* driver and crew */
+  'err.not_permitted':     { en: 'Crew can start boarding, depart and arrive. Cancelling is done by the office.', bn: 'ক্রু যাত্রী তোলা, ছাড়া আর পৌঁছানো লিখতে পারেন। বাতিল করা অফিসের কাজ।' },
+  'err.note_required':     { en: 'Describe what happened.',  bn: 'কী হয়েছে সেটি লিখুন।' },
+  'err.report_failed':     { en: 'The report could not be saved.', bn: 'রিপোর্টটি সেভ করা গেল না।' },
+  'err.bad_position':      { en: 'A position needs a latitude and a longitude.', bn: 'অবস্থানের জন্য অক্ষাংশ আর দ্রাঘিমাংশ লাগে।' },
+  'err.position_failed':   { en: 'The position could not be recorded.', bn: 'অবস্থানটি লেখা গেল না।' },
+  'err.client_ref_required': { en: 'Every scan needs a reference from the device.', bn: 'প্রতিটি স্ক্যানে ডিভাইসের একটি রেফারেন্স লাগে।' },
+  'err.scan_failed':       { en: 'That check could not be recorded.', bn: 'যাচাইটি লেখা গেল না।' },
+  'err.search_failed':     { en: 'The search did not work.', bn: 'খোঁজা গেল না।' },
 
   /* -------------------------------------------------- statuses (passenger) */
   'status.CREATED':          { en: 'Not paid yet',           bn: 'এখনো টাকা দেওয়া হয়নি' },
@@ -895,6 +975,17 @@ const S = {
   'dr.scanAlready':        { en: 'Already boarded',          bn: 'আগেই উঠেছেন' },
   'dr.scanBad':            { en: 'Do not let them on',       bn: 'উঠতে দেবেন না' },
   'dr.seatIs':             { en: 'Seat {seat}',              bn: 'আসন {seat}' },
+  /* The sentence under the headline, keyed on the platform's result constant.
+   * The headline above was already translated and this line was not, so the
+   * console read "উঠতে দেবেন না" and then, directly beneath it, "This ticket
+   * was cancelled. Do not board." — to somebody with half a second to act. */
+  'dr.msg.BOARDED':         { en: 'Boarded — seat {seat}',    bn: 'উঠেছেন — আসন {seat}' },
+  'dr.msg.ALREADY_BOARDED': { en: 'Already scanned. Seat {seat} is marked boarded.', bn: 'আগেই স্ক্যান হয়েছে। আসন {seat} ওঠা হিসেবে লেখা আছে।' },
+  'dr.msg.WRONG_TRIP':      { en: 'This ticket is for a different departure.', bn: 'এই টিকিট অন্য যাত্রার।' },
+  'dr.msg.CANCELLED':       { en: 'This ticket was cancelled. Do not board.', bn: 'এই টিকিট বাতিল হয়েছে। উঠতে দেবেন না।' },
+  'dr.msg.NOT_FOUND':       { en: 'No ticket found for that code.', bn: 'এই নম্বরে কোনো টিকিট পাওয়া যায়নি।' },
+  'dr.msg.UNKNOWN':         { en: 'That code could not be read.', bn: 'নম্বরটি পড়া গেল না।' },
+  'dr.stateFail':           { en: 'That could not be recorded.', bn: 'সেটি লেখা গেল না।' },
   'dr.markBoarded':        { en: 'Mark boarded',             bn: 'উঠেছেন লিখুন' },
   'dr.noShow':            { en: 'Did not come',              bn: 'আসেননি' },
   'dr.startTrip':          { en: 'Start the trip',           bn: 'যাত্রা শুরু' },
@@ -1065,6 +1156,8 @@ const S = {
   'co.q.reserve1':         { en: 'Hold back 1 seat',          bn: '1টি আসন রাখুন' },
   'co.q.reserveN':         { en: 'Hold back {count} seats',   bn: '{count}টি আসন রাখুন' },
   'co.q.reserving':        { en: 'Holding…',                  bn: 'রাখা হচ্ছে…' },
+  'co.syncFail':           { en: 'The queue could not be synced.',
+                             bn: 'জমে থাকা বিক্রিগুলো পাঠানো গেল না।' },
   'co.q.failLoad':         { en: 'The held-back seats could not be loaded.',
                              bn: 'রাখা আসনগুলো আনা গেল না।' },
   'co.q.failSearch':       { en: 'The search did not work.',  bn: 'খোঁজা গেল না।' },
@@ -1286,6 +1379,45 @@ export type T = (key: Key, vars?: Record<string, string | number>) => string;
 
 export function translator(lang: Lang): T {
   return (key, vars) => fill(S[key][lang] ?? S[key].en, vars);
+}
+
+/** Whether the catalogue has a string under this name. Narrows for `t`. */
+export function hasKey(k: string): k is Key {
+  return Object.prototype.hasOwnProperty.call(S, k);
+}
+
+/**
+ * The words to put on the screen when the platform refuses something.
+ *
+ * The platform answers `{ error: <code>, message: <English> }`. Screens used to
+ * show `message`, so the frontline workplaces — Bangla by product decision —
+ * were Bangla until the moment they had bad news and then were not, which is
+ * the moment being understood matters most.
+ *
+ * The order is deliberate:
+ *
+ *  1. A code the catalogue knows wins. Those are the refusals people actually
+ *     hit, and the platform's English for them is a log line, not a sentence.
+ *  2. Then the caller's own key, because a screen knows what it was doing —
+ *     "the shift could not be closed" beats "that could not be loaded".
+ *  3. Then the platform's own sentence, which for a rare or unusually specific
+ *     refusal carries more than any generic translation could.
+ *  4. Then a shrug, which is at least a translated one.
+ *
+ * `ref` on the body is interpolated, so a PNR the reader must quote to support
+ * survives being translated out of the sentence that used to carry it.
+ */
+export function errorText(t: T, e: unknown, fallback?: Key): string {
+  const err = e as { code?: unknown; message?: unknown; body?: unknown } | null;
+  const code = typeof err?.code === 'string' ? err.code : '';
+  const key = `err.${code}`;
+  if (code && hasKey(key)) {
+    const ref = (err?.body as { ref?: unknown } | undefined)?.ref;
+    return t(key, typeof ref === 'string' ? { ref } : undefined);
+  }
+  if (fallback) return t(fallback);
+  const msg = typeof err?.message === 'string' ? err.message : '';
+  return msg || t('err.generic');
 }
 
 /* ------------------------------------------------------- localised datetime */

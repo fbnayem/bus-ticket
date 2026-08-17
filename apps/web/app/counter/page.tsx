@@ -10,6 +10,7 @@ import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
 import { isoDate } from '@/lib/format';
+import { errorText } from '@/lib/i18n';
 
 // The counter sale.
 //
@@ -62,7 +63,7 @@ export default function CounterSellPage() {
   const [flash, setFlash] = useState('');
 
   const refresh = useCallback(() => {
-    sget<CounterContext>('/counter/context').then(setCtx).catch((e: ApiError) => setError(e.message));
+    sget<CounterContext>('/counter/context').then(setCtx).catch((e: ApiError) => setError(errorText(t, e)));
   }, []);
 
   useEffect(() => {
@@ -95,7 +96,7 @@ export default function CounterSellPage() {
       );
       refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'The queue could not be synced.');
+      setError(errorText(t, e, 'co.syncFail'));
     }
   }, [refresh, t]);
 
@@ -182,7 +183,7 @@ function OnlineSale({ ctx, onSold }: { ctx: CounterContext | null; onSold: () =>
       const r = await api.search(from, to, date);
       setResults(r.results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Search failed.');
+      setError(errorText(t, err, 'err.search_failed'));
     } finally {
       setSearching(false);
     }
@@ -228,7 +229,7 @@ function OnlineSale({ ctx, onSold }: { ctx: CounterContext | null; onSold: () =>
       void reloadSeats();
     } catch (err) {
       const e = err as ApiError;
-      setError(e.message);
+      setError(errorText(t, e));
       setConfirming(false);
       // A 409 means somebody else took the seat between drawing this map and
       // pressing sell. Redraw rather than let the clerk try the same seat again.

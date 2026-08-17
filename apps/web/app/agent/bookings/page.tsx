@@ -8,6 +8,7 @@ import { ErrorNotice, Loading, StatusPill } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
 import { Ref } from '@/components/Ref';
+import { errorText } from '@/lib/i18n';
 
 interface Booking {
   pnr: string; status: string; total_poisha: number; created_at: string;
@@ -24,7 +25,7 @@ export default function AgentBookingsPage() {
   useEffect(() => {
     sget<{ bookings: Booking[] }>('/agent/bookings')
       .then((r) => setRows(r.bookings))
-      .catch((e: ApiError) => setError(e.message))
+      .catch((e: ApiError) => setError(errorText(t, e)))
       .finally(() => setLoading(false));
   }, []);
 

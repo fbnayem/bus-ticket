@@ -6,8 +6,7 @@ import { sget, spost } from '@/lib/staff';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
-import { STRINGS, type Key } from '@/lib/i18n';
-
+import { STRINGS, errorText, type Key } from '@/lib/i18n';
 interface Trip { trip_id: string; depart_at: string; route: string }
 interface Incident {
   incident_id: string; trip_id: string; kind: string; severity: string;
@@ -41,7 +40,7 @@ export default function IncidentsPage() {
         setRows(i.incidents);
         if (!tripId && tr.trips[0]) setTripId(tr.trips[0].trip_id);
       })
-      .catch((e: ApiError) => setError(e.message))
+      .catch((e: ApiError) => setError(errorText(t, e)))
       .finally(() => setLoading(false));
   }, [tripId]);
 
@@ -56,7 +55,7 @@ export default function IncidentsPage() {
       setNote('');
       load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('dr.in.fail'));
+      setError(errorText(t, err, 'dr.in.fail'));
     }
   };
 

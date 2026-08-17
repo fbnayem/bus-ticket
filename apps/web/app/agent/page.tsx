@@ -8,8 +8,7 @@ import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money, Tile } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
 import { Ref } from '@/components/Ref';
-import { STRINGS, type Key } from '@/lib/i18n';
-
+import { STRINGS, errorText, type Key } from '@/lib/i18n';
 // The wallet.
 //
 // Three numbers matter, because any one of them alone misleads: what is loaded,
@@ -50,7 +49,7 @@ export default function AgentWalletPage() {
       sget<{ transactions: Txn[] }>('/agent/transactions'),
     ])
       .then(([w, tx]) => { setData(w); setTxns(tx.transactions); })
-      .catch((e: ApiError) => setError(e.message))
+      .catch((e: ApiError) => setError(errorText(t, e)))
       .finally(() => setLoading(false));
   }, []);
 

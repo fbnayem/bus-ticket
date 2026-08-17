@@ -9,6 +9,7 @@ import { ErrorNotice, Loading, StatusPill } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
 import { Ref } from '@/components/Ref';
+import { errorText } from '@/lib/i18n';
 
 interface Sale {
   pnr: string; status: string; total_poisha: number; created_at: string;
@@ -25,7 +26,7 @@ export default function CounterSalesPage() {
   useEffect(() => {
     sget<{ sales: Sale[] }>('/counter/sales')
       .then((r) => setSales(r.sales))
-      .catch((e: ApiError) => setError(e.message))
+      .catch((e: ApiError) => setError(errorText(t, e)))
       .finally(() => setLoading(false));
     setPending(queue.all());
   }, []);

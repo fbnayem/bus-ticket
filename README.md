@@ -95,11 +95,20 @@ node scripts/platform-smoke.mjs    # 70 checks — backbone, notifications, sear
                                    #             centre, partner API, risk, analytics
 
 # full flows in a real browser, with screenshots
+# NOTE: against a PRODUCTION build — npm run build && npx next start
 cd apps/web
-node scripts/browser-flow.mjs      # 33 checks — search → pay → ticket → cancel → sign in
-node scripts/staff-flow.mjs        # 85 checks — all six staff apps and every console,
+node scripts/browser-flow.mjs      # 37 checks — search → pay → ticket → cancel → sign in,
+                                   #             and the ticket opening with the network cut
+node scripts/staff-flow.mjs        # 86 checks — all six staff apps and every console,
                                    #             including a real network cut
+node scripts/lang-audit.mjs        # every Bangla surface, working AND failing
 ```
+
+**The browser suites need a production build, not `npm run dev`.** The ticket's
+offline behaviour rests on a service worker, and `next dev` deliberately
+disables the caching a service worker depends on — so under `dev` that check
+fails on the dev server rather than on the product. Everything else in the
+suites passes either way; the offline check is the one that does not.
 
 The browser suites sell real tickets on real trips, and the corridor fixture has
 one departure per operator per day. Run them enough times and the near
@@ -135,12 +144,21 @@ exercised by one of the two browser suites; the mobile apps have their own.
 | `/checkout` | Passenger details, saved passengers, promo code, hold countdown |
 | `/payment/[bookingId]` · `/payment/sandbox` | bKash · Nagad · card · bank |
 | `/confirmation/[pnr]` | Polls until the webhook confirms |
-| `/tickets/[pnr]` | E-ticket with a real scannable QR per passenger, printable |
+| `/tickets/[pnr]` | E-ticket with a real scannable QR per passenger, printable, and it **opens with no network** |
 | `/manage` · `/manage/[pnr]` · `/manage/[pnr]/reschedule` | Lookup, refund quote, cancellation, change departure |
 | `/tracking/[pnr]` | Route progress and ETA, labelled by source |
 | `/login` | Sign in with a one-time code or a password |
 | `/account` | Trips, saved passengers, referral code, devices, language |
 | `/offers` · `/support` | Live campaigns, FAQ |
+
+The homepage promises, in both languages, that **your ticket works without
+signal**. That is now true on the website as well as in the app: the ticket is
+written to the device the first time it is seen, a narrow service worker keeps
+the page itself reloadable, and the copy says on screen that it came from the
+device. It is deliberately the only passenger page treated this way — a stale
+seat map is worse than an error, whereas a ticket is not a claim about seat
+state at all. The QR is a signed token the crew's scanner verifies against the
+platform at the door, so an old copy cannot board anybody who should not board.
 
 ### Counter POS — `/counter`
 
@@ -541,8 +559,11 @@ apps/mobile/              two Flutter applications + the package they share
   lib/auth.ts             passenger sign-in, refresh rotation
   lib/staff.ts            bearer-token client that fails closed on 401
   lib/offline.ts          the counter's offline queue and quota cache
+  lib/offlineTickets.ts   the passenger's ticket, kept on the device
   public/counter-sw.js    the counter's offline shell — never caches the API
+  public/ticket-sw.js     the ticket's offline shell — never caches the API either
   scripts/                browser-flow.mjs (passenger) · staff-flow.mjs (six apps)
+                          lang-audit.mjs (every Bangla surface, working and failing)
 
 scripts/smoke.mjs           38-check passenger API flow
 scripts/channels-smoke.mjs  77-check staff channel API flow

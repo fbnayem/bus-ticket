@@ -7,6 +7,7 @@ import { sget, spost } from '@/lib/staff';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
+import { errorText, hasKey } from '@/lib/i18n';
 
 // The boarding scanner.
 //
@@ -55,7 +56,7 @@ function Scanner() {
   useEffect(() => {
     sget<{ trips: Trip[] }>('/driver/trips')
       .then((r) => { setTrips(r.trips); if (!tripId && r.trips[0]) setTripId(r.trips[0].trip_id); })
-      .catch((e: ApiError) => setError(e.message));
+      .catch((e: ApiError) => setError(errorText(t, e)));
     setQueued(readQueue().length);
   }, [tripId]);
 
@@ -145,7 +146,7 @@ function Scanner() {
         setLast(local);
         setHistory((h) => [local, ...h].slice(0, 12));
       } else {
-        setError(e.message);
+        setError(errorText(t, e));
       }
     }
     setCode(''); setSeat('');
@@ -157,6 +158,21 @@ function Scanner() {
     r === 'BOARDED' ? t('dr.scanOk')
     : r === 'ALREADY_BOARDED' ? t('dr.scanAlready')
     : t('dr.scanBad');
+
+  // The sentence under the headline. The headline has always been translated
+  // and this line was not, so the verdict read "উঠতে দেবেন না" over the top of
+  // "This ticket was cancelled. Do not board." — keyed on `result`, which is a
+  // platform constant and means the same in both languages.
+  //
+  // A queued verdict keeps the words it was given: those were built here, in
+  // the reader's language, and say the one thing no entry below can — that the
+  // check is written down but the office has not confirmed it.
+  const verdictLine = (v: ScanResult) => {
+    if (v.queued) return v.message;
+    const key = `dr.msg.${v.result}`;
+    if (hasKey(key)) return t(key, { seat: v.seat_no });
+    return v.message || t('dr.msg.UNKNOWN');
+  };
 
   return (
     <div className="stack">
@@ -215,7 +231,7 @@ function Scanner() {
           <div>
             <strong>{verdictOf(last.result)}</strong>
             {last.seat_no && <div className="verdict-seat">{t('dr.seatIs', { seat: last.seat_no })}</div>}
-            <div>{last.message}</div>
+            <div>{verdictLine(last)}</div>
             {last.passenger && <div className="small">{last.passenger}</div>}
             {last.queued && <div className="small">{t('dr.notConfirmed')}</div>}
           </div>

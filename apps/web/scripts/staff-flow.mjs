@@ -516,9 +516,18 @@ try {
     check('a different person can approve it', canApprove > 0);
     if (canApprove) {
       await page.click('button:has-text("Approve for payment")');
-      await page.waitForSelector('.notice-info', { timeout: 20000 });
-      check('the settlement is approved',
-        (await page.locator('.notice-info').first().innerText()).includes('Approved'));
+      // Wait for the flash BY ITS WORDS, not by its class.
+      //
+      // The settlement panel already carries a `.notice-info` of its own —
+      // "Every transaction in this period reconciles." — so waiting on the
+      // class was satisfied the instant it was asked, before the flash had
+      // rendered, and the assertion then read the wrong notice. The product was
+      // approving the settlement correctly the whole time; the harness was
+      // reading the page too early through a selector that was never unique to
+      // the thing it was waiting for.
+      const approved = page.locator('.notice-info', { hasText: 'Approved' });
+      await approved.first().waitFor({ timeout: 20000 }).catch(() => undefined);
+      check('the settlement is approved', (await approved.count()) > 0);
     }
   }
   await shot('36-settlement-approved');

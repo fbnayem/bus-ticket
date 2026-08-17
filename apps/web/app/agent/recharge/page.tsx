@@ -7,8 +7,7 @@ import { useSession } from '@/components/StaffShell';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
-import { STRINGS, type Key } from '@/lib/i18n';
-
+import { STRINGS, errorText, type Key } from '@/lib/i18n';
 // Money entering the platform walks maker → checker. The agent says what they
 // sent; a different person in finance confirms it arrived. The database refuses
 // a self-approval outright, so this is not merely a workflow convention.
@@ -34,7 +33,7 @@ export default function RechargePage() {
   const load = useCallback(() => {
     sget<{ recharges: Recharge[] }>('/agent/recharges')
       .then((r) => setRows(r.recharges))
-      .catch((e: ApiError) => setError(e.message))
+      .catch((e: ApiError) => setError(errorText(t, e)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -53,7 +52,7 @@ export default function RechargePage() {
       setReference('');
       load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('ag.rc.fail'));
+      setError(errorText(t, err, 'ag.rc.fail'));
     } finally { setBusy(false); }
   };
 

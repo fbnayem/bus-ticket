@@ -7,6 +7,7 @@ import { sget } from '@/lib/staff';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Bar } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
+import { errorText } from '@/lib/i18n';
 
 interface Manifest {
   trip: { depart_at: string; route: string; operator: string; registration: string; status: string };
@@ -35,7 +36,7 @@ export default function DriverManifestPage({ params }: { params: Promise<{ tripI
       .catch((e: ApiError) => {
         const cached = localStorage.getItem('jatra.manifest.' + tripId);
         if (cached) { setM(JSON.parse(cached)); setStale(true); }
-        else setError(e.message);
+        else setError(errorText(t, e));
       });
   }, [tripId]);
 

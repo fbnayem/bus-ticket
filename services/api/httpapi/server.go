@@ -223,6 +223,10 @@ type apiError struct {
 	Error   string `json:"error"`
 	Message string `json:"message"`
 	Field   string `json:"field,omitempty"`
+	// A datum the reader has to act on, carried as data rather than buried in
+	// the prose. Message is written in one language and the interface speaks
+	// two; a PNR somebody must quote to support is needed in both.
+	Ref string `json:"ref,omitempty"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -235,6 +239,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // not for a log file. The web app shows the message verbatim.
 func fail(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, apiError{Error: code, Message: msg})
+}
+
+// failRef is fail for refusals that carry something the reader needs to keep —
+// a PNR to quote, a reference to chase. The interface translates by code, so
+// anything left only inside msg is lost the moment the reader is not English.
+func failRef(w http.ResponseWriter, status int, code, msg, ref string) {
+	writeJSON(w, status, apiError{Error: code, Message: msg, Ref: ref})
 }
 
 func decode(r *http.Request, v any) error {

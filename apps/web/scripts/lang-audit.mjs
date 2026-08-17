@@ -158,6 +158,66 @@ for (const [name, account, path] of STAFF) {
   for (const r of runs.slice(0, 4)) console.log(`         ${r}`);
 }
 
+/* ------------------------------------------------- and when it goes wrong */
+
+// Every pass above reads a page that is working. That is exactly how these
+// workplaces stayed English where it mattered: the platform answers
+// `{ error: <code>, message: <English> }`, screens showed the message, and the
+// audit never saw it because the audit never broke anything.
+//
+// So break something. Refuse every API call and read what the page says about
+// it — which is the sentence a counter clerk actually meets on a bad afternoon.
+console.log('');
+for (const [name, account, path] of STAFF) {
+  if (!account) continue;
+  if (account !== signedInAs) {
+    await page.goto(base + '/staff/login', { waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+    await page.goto(base + '/staff/login', { waitUntil: 'domcontentloaded' });
+    await page.fill('#email', account);
+    await page.fill('#password', 'Jatra#2026');
+    await page.click('[data-act="staff-signin"]');
+    await page.waitForTimeout(2500);
+    signedInAs = account;
+  }
+
+  // Refuse with a code the platform really uses, and English words in the
+  // message — so anything English on screen came from the message, which is
+  // the fault being looked for.
+  //
+  // Sign-in and the session check are let through on purpose. Refusing those
+  // too made the shell decide the session had ended and send the browser back
+  // to the login page, where there is no error to read and every screen passed
+  // for the wrong reason.
+  await page.route('**/api/v1/**', (route) => {
+    if (route.request().url().includes('/staff/me') || route.request().url().includes('/staff/login')) {
+      return route.continue();
+    }
+    return route.fulfill({
+      status: 500,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({ error: 'query_failed', message: 'Could not load your trips.' }),
+    });
+  });
+  await page.goto(base + path, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await page.waitForTimeout(1200);
+
+  const notices = await page.evaluate(() =>
+    [...document.querySelectorAll('.notice, .notice-danger, .notice-warn')]
+      .map((n) => n.innerText.trim()).filter(Boolean)).catch(() => []);
+  await page.unroute('**/api/v1/**');
+
+  const bad = [];
+  for (const n of notices) {
+    const words = (n.match(/[A-Za-z][A-Za-z']{2,}/g) ?? [])
+      .filter((w) => !ALLOW.has(w.toLowerCase()));
+    if (words.length >= 3) bad.push(n.split('\n')[0].slice(0, 100));
+  }
+  total += bad.length;
+  console.log(`${bad.length === 0 ? '  ok  ' : '  ENG '} ${name} — when it fails`);
+  for (const r of bad.slice(0, 3)) console.log(`         ${r}`);
+}
+
 await browser.close();
 console.log(`\n${total === 0 ? 'NO ENGLISH PROSE ON THE BANGLA SURFACES' : total + ' LINE(S) STILL IN ENGLISH'}`);
 process.exit(total === 0 ? 0 : 1);

@@ -213,7 +213,8 @@ func (s *Server) handleAgentSale(w http.ResponseWriter, r *http.Request, id *sta
 	commission, err := s.com.SettleAgentSale(ctx, bookingID, agencyID, walletHoldID)
 	if err != nil {
 		s.log.Error("agent settle", "err", err)
-		fail(w, 500, "settle_failed", "The ticket could not be issued. Contact support with this PNR: "+pnr)
+		failRef(w, 500, "settle_failed",
+			"The ticket could not be issued. Contact support with this PNR: "+pnr, pnr)
 		return
 	}
 	if commission > 0 {
