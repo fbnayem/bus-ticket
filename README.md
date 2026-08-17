@@ -97,7 +97,7 @@ node scripts/platform-smoke.mjs    # 70 checks — backbone, notifications, sear
 # full flows in a real browser, with screenshots
 # NOTE: against a PRODUCTION build — npm run build && npx next start
 cd apps/web
-node scripts/browser-flow.mjs      # 37 checks — search → pay → ticket → cancel → sign in,
+node scripts/browser-flow.mjs      # 41 checks — search → pay → ticket → cancel → sign in,
                                    #             and the ticket opening with the network cut
 node scripts/staff-flow.mjs        # 86 checks — all six staff apps and every console,
                                    #             including a real network cut
@@ -426,12 +426,14 @@ four channels, one seat, exactly one winner  — web=201 counter=409 agent=409 q
 Real Chromium sessions, clicks and keystrokes only — no direct API calls, so
 they fail if an application is wired up wrongly even when the backend is perfect.
 
-**Passenger** (`apps/web/scripts/browser-flow.mjs`, 37 checks) — search
-`Dhaka → ctg` with the alias resolved, AC filter, price sort, a 36-seat map, hold
-with countdown, sandbox payment, **PNR confirmed by webhook**, a real QR, ৳1,832
-refund quote, cancellation, **both cancelled seats sellable again** — then
-**signed out the account shows nothing**, a one-time code signs the passenger in,
-and **the trip they booked as a guest is waiting for them**. No console errors.
+**Passenger** (`apps/web/scripts/browser-flow.mjs`, 41 checks) — search
+`Dhaka → ctg` with the alias resolved, AC filter, price sort, a 36-seat map with
+**free and sold measurably different colours**, hold with countdown, a booking
+where **only the lead passenger is named**, sandbox payment, **PNR confirmed by
+webhook**, a real QR, ৳1,832 refund quote, cancellation, **both cancelled seats
+sellable again** — then **signed out the account shows nothing**, a one-time code
+signs the passenger in, and **the trip they booked as a guest is waiting for
+them**. No console errors.
 
 **The place picker** (`apps/web/scripts/place-picker.mjs`, 18 checks) — `chitagong`
 finds Chattogram, `jessore` finds Jashore, `gabtoli` finds the terminal and says
@@ -623,6 +625,22 @@ is what forced the interface to exist rather than an import.
 ---
 
 ## Design decisions worth knowing
+
+**One name, not one name per seat.** Only the person booking has to be named.
+The platform never required a name per seat — boarding is decided by the signed
+QR on each ticket — so demanding four full names before payment was the client's
+rule, not the transport's, and it cost the sale every time a friend was not in
+the room. The lead name is still required, because a booking has to be in
+somebody's name, and both halves of that are asserted on web and app.
+
+**A seat you can buy must not look like a seat you cannot.** Free was `#F6F8F5`
+against a sold seat that composited to about `#F3F4F4` — three steps apart out
+of 255, on the one screen whose entire job is telling them apart, with a thin
+strikethrough doing all the work. Sold is now a solid fill roughly 30 steps
+down, and `browser-flow.mjs` measures the painted luminance gap rather than
+asserting a hex constant, because the bug was a translucent fill compositing
+against the panel behind it: the stylesheet looked correct and the screen did
+not.
 
 **PostgreSQL is authoritative; Redis is an accelerator.** Hold expiry is a
 PostgreSQL `expires_at` plus a sweeper using `FOR UPDATE SKIP LOCKED`. Redis

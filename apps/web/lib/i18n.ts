@@ -226,7 +226,14 @@ const S = {
   'pax.useSaved':          { en: 'Use a saved passenger',    bn: 'সংরক্ষিত যাত্রী থেকে নিন' },
   'pax.enterManually':     { en: 'Enter details manually',   bn: 'নিজে লিখে দিন' },
   'pax.nameHint':          { en: 'As printed on your NID',   bn: 'এনআইডিতে যেভাবে লেখা আছে' },
-  'pax.nameRequired':      { en: 'Enter a name for every passenger.', bn: 'প্রত্যেক যাত্রীর নাম লিখুন।' },
+  // Only the lead passenger's name is required. The others are genuinely
+  // optional, so the wording says so instead of leaving a required-looking
+  // field that quietly is not.
+  'pax.nameRequired':      { en: 'Enter the name of the person booking.', bn: 'যিনি বুকিং করছেন তাঁর নাম লিখুন।' },
+  'pax.lead':              { en: 'Booking in the name of',   bn: 'যাঁর নামে বুকিং' },
+  'pax.leadNote':          { en: 'We only need this one name. The rest are optional — the QR code on each ticket is what boards the bus.', bn: 'শুধু এই নামটিই দরকার। বাকিগুলো না দিলেও চলবে — বাসে ওঠার সময় প্রতিটি টিকিটের QR কোডই কাজ করে।' },
+  'pax.optional':          { en: 'optional',                 bn: 'না দিলেও চলবে' },
+  'pax.companion':         { en: 'Travelling with',          bn: 'সঙ্গে যাচ্ছেন' },
   'pax.summary':           { en: 'Trip summary',             bn: 'যাত্রার সারসংক্ষেপ' },
   'pax.toPayment':         { en: 'Continue to payment',      bn: 'পেমেন্টে যান' },
   'pax.creating':          { en: 'Creating booking…',        bn: 'বুকিং তৈরি হচ্ছে…' },

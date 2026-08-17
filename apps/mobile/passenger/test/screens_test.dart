@@ -10,6 +10,7 @@ import 'package:jatra_passenger/app_state.dart';
 import 'package:jatra_passenger/reminders.dart';
 import 'package:jatra_passenger/screens/home.dart';
 import 'package:jatra_passenger/screens/offers.dart';
+import 'package:jatra_passenger/screens/passengers.dart';
 import 'package:jatra_passenger/screens/seats.dart';
 import 'package:jatra_passenger/screens/ticket.dart';
 import 'package:jatra_passenger/screens/tickets.dart';
@@ -148,6 +149,13 @@ MockClient _platform({Map<String, dynamic>? seatMap, bool placesFail = false}) =
           ]
         });
       }
+      // Creating a booking is refused, deliberately. These tests are about
+      // whether the screen's own validation lets you through — once it does,
+      // the platform's answer is somebody else's test, and a success here
+      // would navigate away to a screen this fixture cannot furnish.
+      if (p.endsWith('/bookings') && req.method == 'POST') {
+        return _json(const {'error': 'unavailable', 'message': 'Not in this test.'}, 503);
+      }
       if (p.contains('/bookings/')) return _json(_booking());
       if (p.endsWith('/search')) return _json({'results': []});
       return _json(const {});
@@ -175,6 +183,22 @@ Future<AppState> _state({
   );
 }
 
+/// A hold over [seats], with long enough left on the clock that the countdown
+/// does not replace the form with "your seats have gone" mid-test.
+Hold _hold(List<String> seats) => Hold.fromJson({
+      'hold_id': 'h-1',
+      'trip_id': 't-1',
+      'seats': seats,
+      'board_seq': 0,
+      'drop_seq': 3,
+      'expires_at': DateTime.now().add(const Duration(minutes: 9)).toIso8601String(),
+      'price': {
+        'seat_count': seats.length,
+        'base_poisha': 115000 * seats.length,
+        'total_poisha': 115000 * seats.length,
+      },
+    });
+
 Widget _wrap(AppState state, Widget child) => LangScope(
       lang: Lang.bn,
       setLang: (_) {},
@@ -197,6 +221,61 @@ void main() {
     // what travels to the platform, and is checked where that matters below.
     expect(find.text('ঢাকা'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  /* ----------------------------------------------------- who is travelling */
+
+  /// The screen is a ListView, so on a phone-sized test surface only the first
+  /// card or two are ever built and the rest of the form does not exist to be
+  /// typed into. A tall window builds the whole thing.
+  void tallWindow(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1000, 4000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+  }
+
+  testWidgets('only the person booking has to be named', (tester) async {
+    tallWindow(tester);
+    final state = await _state();
+    await tester.pumpWidget(
+        _wrap(state, PassengersScreen(trip: _trip(), hold: _hold(['A1', 'A2', 'A3']))));
+    await tester.pump();
+
+    final fields = find.byType(TextField);
+    // Three seats plus the contact number.
+    expect(fields, findsNWidgets(4));
+
+    // Name the first passenger and nobody else, then try to go on.
+    await tester.enterText(fields.at(0), 'Rahim Uddin');
+    await tester.enterText(fields.at(3), '01711000000');
+    await tester.tap(find.text(const L(Lang.bn)('common.next')));
+    await tester.pumpAndSettle();
+
+    expect(find.text(const L(Lang.bn)('pax.needName')), findsNothing,
+        reason: 'a group of three should not have to collect two more full '
+            'names off their friends before they are allowed to pay');
+    // Positive proof it got past the screen's own gate rather than failing
+    // earlier for some unrelated reason: the refusal on screen is the
+    // platform's, which only happens once the booking was actually attempted.
+    expect(find.byType(ErrorNotice), findsOneWidget);
+  });
+
+  testWidgets('but leaving the booking name blank is still refused', (tester) async {
+    tallWindow(tester);
+    final state = await _state();
+    await tester.pumpWidget(
+        _wrap(state, PassengersScreen(trip: _trip(), hold: _hold(['A1', 'A2']))));
+    await tester.pump();
+
+    final fields = find.byType(TextField);
+    // Name the SECOND passenger only — the lead is still blank.
+    await tester.enterText(fields.at(1), 'Fatema Begum');
+    await tester.enterText(fields.at(2), '01711000000');
+    await tester.tap(find.text(const L(Lang.bn)('common.next')));
+    await tester.pump();
+
+    expect(find.text(const L(Lang.bn)('pax.needName')), findsOneWidget,
+        reason: 'the booking still has to be in somebody\'s name');
   });
 
   /* ------------------------------------------------------- place picking */

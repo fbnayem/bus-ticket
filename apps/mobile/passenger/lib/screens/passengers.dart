@@ -58,7 +58,11 @@ class _PassengersScreenState extends State<PassengersScreen> {
 
   Future<void> _continue() async {
     final l = L.of(context);
-    if (_names.any((c) => c.text.trim().isEmpty)) {
+    // Only the person booking has to be named. The platform has never required
+    // a name per seat, and boarding is decided by the QR on each ticket — so
+    // demanding four names before payment was the app's rule, not the
+    // transport's, and it cost a sale every time a friend was not in the room.
+    if (_names.first.text.trim().isEmpty) {
       setState(() => _error = l('pax.needName'));
       return;
     }
@@ -146,13 +150,24 @@ class _PassengersScreenState extends State<PassengersScreen> {
                                   color: J.field,
                                   fontFeatures: [FontFeature.tabularFigures()])),
                         ),
+                        if (i > 0) ...[
+                          const SizedBox(width: 8),
+                          Text(l('pax.optional'),
+                              style: const TextStyle(fontSize: 12.5, color: J.muted)),
+                        ],
                       ]),
+                      if (i == 0) ...[
+                        const SizedBox(height: 8),
+                        Text(l('pax.leadNote'),
+                            style: const TextStyle(fontSize: 12.5, color: J.muted, height: 1.35)),
+                      ],
                       const SizedBox(height: 12),
                       TextField(
                         controller: _names[i],
                         textCapitalization: TextCapitalization.words,
                         decoration: InputDecoration(
-                          labelText: l('pax.name'),
+                          labelText: i == 0 ? l('pax.lead') : l('pax.name'),
+                          hintText: i == 0 ? null : l('pax.optional'),
                           helperText: i == 0 ? l('pax.nameHint') : null,
                           helperMaxLines: 2,
                         ),

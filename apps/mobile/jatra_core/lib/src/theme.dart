@@ -48,6 +48,17 @@ abstract final class J {
   /// composes with them instead of competing.
   static const plum = Color(0xFF8E2F72);
 
+  /// A seat nobody can buy.
+  ///
+  /// This used to be `plate2` — one shade off the white a free seat is painted.
+  /// Nine steps out of 255, on the one screen whose entire job is "which of
+  /// these can I have". The strikethrough was doing all the work, and a
+  /// strikethrough is thin. This is a solid fill far enough down that the
+  /// answer survives sunlight, a cheap LCD and a colour-blind reader.
+  static const seatSold = Color(0xFFD5DBD3);
+  static const seatSoldLine = Color(0xFFAEB9AA);
+  static const seatSoldInk = Color(0xFF5C6961);
+
   /// Third-party marks. Quarantined from the semantics on purpose: an orange
   /// Nagad tile is a brand, not a warning.
   static const bkash = Color(0xFFE2136E);

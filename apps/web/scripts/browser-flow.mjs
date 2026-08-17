@@ -93,6 +93,34 @@ try {
 
   const free = page.locator('.bus button.seat[data-state="free"]');
   check('free seats available', (await free.count()) >= 2);
+
+  // A seat you can buy must not look like a seat you cannot.
+  //
+  // These were three steps apart out of 255 — a free seat #F6F8F5 against a
+  // sold seat that composited to about #F3F4F4 — so the entire distinction on
+  // the one screen that exists to make it rested on a thin strikethrough.
+  // Measured as painted, not asserted against a hex constant, because the bug
+  // was a translucent fill compositing against the panel behind it: the
+  // stylesheet looked fine and the screen did not.
+  const contrast = await page.evaluate(() => {
+    const paint = (el) => {
+      const c = getComputedStyle(el).backgroundColor;
+      const [r, g, b, a = 1] = (c.match(/[\d.]+/g) || []).map(Number);
+      // Composite over the bus panel, which is what the eye actually sees.
+      const panel = getComputedStyle(document.querySelector('.bus')).backgroundColor;
+      const [pr, pg, pb] = (panel.match(/[\d.]+/g) || []).map(Number);
+      return [a * r + (1 - a) * pr, a * g + (1 - a) * pg, a * b + (1 - a) * pb];
+    };
+    const f = document.querySelector('.seat[data-state="free"]');
+    const s = document.querySelector('.seat[data-state="sold"]');
+    if (!f || !s) return null;
+    const [a, b] = [paint(f), paint(s)];
+    const lum = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    return Math.abs(lum(a) - lum(b));
+  });
+  check('free and sold seats are different colours', contrast === null || contrast >= 18,
+    contrast === null ? 'no sold seat on this trip to compare'
+                      : `${contrast.toFixed(1)}/255 apart in luminance`);
   const seatA = await free.nth(0).innerText();
   const seatB = await free.nth(1).innerText();
   await free.nth(0).click();
@@ -113,8 +141,19 @@ try {
   check('hold countdown running', await page.locator('.countdown').isVisible());
   const names = page.locator('input[id^="name-"]');
   check('one name field per seat', (await names.count()) === 2);
+
+  // Only the person booking has to be named. Somebody buying four seats should
+  // not have to collect three more full names off their friends before they
+  // are allowed to pay, and the platform never required it — boarding is
+  // decided by the QR on each ticket.
+  check('only the first name is required',
+    (await names.nth(0).getAttribute('required')) !== null
+    && (await names.nth(1).getAttribute('required')) === null);
+
   await names.nth(0).fill('Rahim Uddin');
-  await names.nth(1).fill('Fatema Begum');
+  // Deliberately left blank, and the booking must still go through. This is
+  // the assertion — filling it would test nothing.
+  await names.nth(1).fill('');
   // The contact number is no longer pre-filled with a developer's placeholder,
   // so it has to be typed — which is the point. This step passing without it
   // was the bug: a real passenger would have sent their ticket to +8801700000000.

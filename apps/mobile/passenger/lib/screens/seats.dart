@@ -211,7 +211,7 @@ class _Legend extends StatelessWidget {
     return Wrap(spacing: 14, runSpacing: 8, children: [
       swatch(J.plate, J.ruleStrong, l('seat.free')),
       swatch(J.field, J.field, l('seat.yours')),
-      swatch(J.plate2, J.rule, l('seat.taken')),
+      swatch(J.seatSold, J.seatSoldLine, l('seat.taken')),
       swatch(J.plum.withValues(alpha: .14), J.plum, l('seat.women')),
     ]);
   }
@@ -378,7 +378,7 @@ class _SeatBox extends StatelessWidget {
     final (bg, border, ink) = mine
         ? (J.field, J.field, Colors.white)
         : !free
-            ? (J.plate2, J.rule, J.muted)
+            ? (J.seatSold, J.seatSoldLine, J.seatSoldInk)
             : s.femaleReserved
                 ? (J.plum.withValues(alpha: .12), J.plum, J.plum)
                 : (J.plate, J.ruleStrong, J.ink);

@@ -92,7 +92,7 @@ export function SeatMap({
       <ul className="seat-legend">
         <li><i className="legend-swatch" style={{ background: 'var(--surface-2)' }} />{t('seat.available')}</li>
         <li><i className="legend-swatch" style={{ background: 'var(--accent)', borderColor: 'var(--accent-600)' }} />{t('seat.selected')}</li>
-        <li><i className="legend-swatch" style={{ background: 'var(--sunken)' }} />{t('seat.sold')}</li>
+        <li><i className="legend-swatch" style={{ background: 'var(--seat-sold)', borderColor: 'var(--seat-sold-line)' }} />{t('seat.sold')}</li>
         <li><i className="legend-swatch" style={{ background: 'var(--warn-tint)', borderColor: 'var(--warn)' }} />{t('seat.held')}</li>
         <li><i className="legend-swatch" style={{ borderColor: '#C2478E', borderWidth: 2 }} />{t('seatType.FEMALE_RESERVED')}</li>
       </ul>

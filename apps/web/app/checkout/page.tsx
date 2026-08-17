@@ -89,7 +89,11 @@ function Checkout() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (passengers.some((p) => !p.full_name.trim())) {
+    // Only the person booking has to be named. A group buying four seats
+    // should not have to collect three more full names off their friends
+    // before they are allowed to pay — the QR on each ticket is what boards
+    // the bus, and the platform has never required a name per seat either.
+    if (!passengers[0]?.full_name.trim()) {
       setError(t('pax.nameRequired'));
       return;
     }
@@ -151,7 +155,15 @@ function Checkout() {
                   <fieldset key={p.seat_no} className="pax-set">
                     <legend className="small">
                       {t('ticket.seat')} <strong className="mono">{p.seat_no}</strong>
+                      {i > 0 && <span className="muted"> · {t('pax.optional')}</span>}
                     </legend>
+
+                    {/* Said once, at the top, rather than repeated on every
+                        field: only the lead name is needed, and the reason is
+                        that boarding is decided by the QR, not by a name. */}
+                    {i === 0 && (
+                      <p className="hint" style={{ marginBottom: '.6rem' }}>{t('pax.leadNote')}</p>
+                    )}
 
                     {saved.length > 0 && (
                       <div className="field" style={{ marginBottom: '.6rem' }}>
@@ -166,11 +178,15 @@ function Checkout() {
 
                     <div className="grid-2">
                       <div className="field">
-                        <label className="label" htmlFor={`name-${i}`}>{t('pax.name')}</label>
-                        <input id={`name-${i}`} className="input" required value={p.full_name}
-                               autoComplete="name"
+                        <label className="label" htmlFor={`name-${i}`}>
+                          {i === 0 ? t('pax.lead') : t('pax.name')}
+                          {i > 0 && <span className="muted"> ({t('pax.optional')})</span>}
+                        </label>
+                        <input id={`name-${i}`} className="input" required={i === 0}
+                               value={p.full_name}
+                               autoComplete={i === 0 ? 'name' : 'off'}
                                onChange={(e) => update(i, { full_name: e.target.value })}
-                               placeholder={t('pax.nameHint')} />
+                               placeholder={i === 0 ? t('pax.nameHint') : t('pax.optional')} />
                       </div>
                       <div className="grid-2">
                         <div className="field">

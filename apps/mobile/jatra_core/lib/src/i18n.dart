@@ -160,8 +160,17 @@ const Map<String, Str> kStrings = {
   'pax.gender': Str('Gender', 'লিঙ্গ'),
   'pax.male': Str('Male', 'পুরুষ'),
   'pax.female': Str('Female', 'নারী'),
-  'pax.needName': Str('Please write a name for every seat.',
-      'প্রতিটি আসনের জন্য একটি নাম লিখুন।'),
+  // Only the lead passenger is required. A group of four should not have to
+  // collect three more full names before they are allowed to pay.
+  'pax.needName': Str('Please write the name of the person booking.',
+      'যিনি বুকিং করছেন তাঁর নাম লিখুন।'),
+  'pax.lead': Str('Booking in the name of', 'যাঁর নামে বুকিং'),
+  'pax.leadNote': Str(
+      'Only this name is needed. The rest are optional — the QR code on each '
+      'ticket is what boards the bus.',
+      'শুধু এই নামটিই দরকার। বাকিগুলো না দিলেও চলবে — বাসে ওঠার সময় প্রতিটি '
+      'টিকিটের QR কোডই কাজ করে।'),
+  'pax.optional': Str('optional', 'না দিলেও চলবে'),
   'pax.needPhone': Str('An 11-digit mobile number, please.',
       '11 সংখ্যার মোবাইল নম্বর লিখুন।'),
 
