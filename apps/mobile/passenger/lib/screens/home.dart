@@ -18,22 +18,20 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _from = TextEditingController(text: 'Dhaka');
-  final _to = TextEditingController(text: 'Chattogram');
+  // The canonical name is what goes to the platform; the Bangla one is only
+  // ever for the reader. Keeping both means the field can be read in either
+  // language without asking the platform what a place is called again.
+  String _from = 'Dhaka', _fromBn = 'ঢাকা';
+  String _to = 'Chattogram', _toBn = 'চট্টগ্রাম';
   DateTime _when = DateTime.now();
 
-  @override
-  void dispose() {
-    _from.dispose();
-    _to.dispose();
-    super.dispose();
-  }
-
   void _swap() {
-    final a = _from.text;
     setState(() {
-      _from.text = _to.text;
-      _to.text = a;
+      final n = _from, nb = _fromBn;
+      _from = _to;
+      _fromBn = _toBn;
+      _to = n;
+      _toBn = nb;
     });
   }
 
@@ -52,11 +50,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _go() {
-    final from = _from.text.trim();
-    final to = _to.text.trim();
-    if (from.isEmpty || to.isEmpty) return;
+    if (_from.isEmpty || _to.isEmpty) return;
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ResultsScreen(from: from, to: to, date: isoDate(_when)),
+      builder: (_) => ResultsScreen(from: _from, to: _to, date: isoDate(_when)),
     ));
   }
 
@@ -97,10 +93,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           Row(
                             children: [
                               Expanded(
-                                child: TextField(
-                                  controller: _from,
-                                  textInputAction: TextInputAction.next,
-                                  decoration: InputDecoration(labelText: l('find.from')),
+                                child: PlaceField(
+                                  label: l('find.from'),
+                                  value: _from,
+                                  valueBn: _fromBn,
+                                  api: app.api,
+                                  store: app.store,
+                                  onChanged: (p) => setState(() {
+                                    _from = p.name;
+                                    _fromBn = p.nameBn;
+                                  }),
                                 ),
                               ),
                               // The swap sits between the two fields because
@@ -112,11 +114,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                 icon: const Icon(Icons.swap_horiz),
                               ),
                               Expanded(
-                                child: TextField(
-                                  controller: _to,
-                                  textInputAction: TextInputAction.done,
-                                  decoration: InputDecoration(labelText: l('find.to')),
-                                  onSubmitted: (_) => _go(),
+                                child: PlaceField(
+                                  label: l('find.to'),
+                                  value: _to,
+                                  valueBn: _toBn,
+                                  api: app.api,
+                                  store: app.store,
+                                  onChanged: (p) => setState(() {
+                                    _to = p.name;
+                                    _toBn = p.nameBn;
+                                  }),
                                 ),
                               ),
                             ],
@@ -157,9 +164,14 @@ class _HomeScreenState extends State<HomeScreen> {
                             avatar: const Icon(Icons.directions_bus_outlined, size: 17),
                             label: Text('${r.from} → ${r.to}'),
                             onPressed: () {
+                              // A saved route holds canonical names only, so
+                              // the Bangla labels are cleared rather than left
+                              // pointing at the previous pair of places.
                               setState(() {
-                                _from.text = r.from;
-                                _to.text = r.to;
+                                _from = r.from;
+                                _fromBn = '';
+                                _to = r.to;
+                                _toBn = '';
                               });
                               _go();
                             },

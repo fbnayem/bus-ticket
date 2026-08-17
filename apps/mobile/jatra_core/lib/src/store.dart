@@ -168,6 +168,36 @@ class Store {
     await _p.setStringList(_kRoutes, all);
   }
 
+  /* ------------------------------------------------------- recent places */
+
+  static const _kPlaces = 'jatra.places.recent';
+
+  /// The places this passenger has actually chosen, most recent first.
+  ///
+  /// This is what the picker can offer with no signal at all. Somebody on a
+  /// bus stand with one bar is usually going somewhere they have been before,
+  /// and the alternative — an empty list and a spinner — is the picker failing
+  /// at exactly the moment it is needed.
+  ///
+  /// Both names are kept so the list still reads correctly in either language
+  /// offline; the canonical name is what gets sent to the platform.
+  List<({String name, String nameBn})> recentPlaces() {
+    final raw = _p.getStringList(_kPlaces) ?? const [];
+    return raw
+        .map((s) => s.split(_sep))
+        .where((p) => p.isNotEmpty && p[0].isNotEmpty)
+        .map((p) => (name: p[0], nameBn: p.length > 1 ? p[1] : ''))
+        .toList();
+  }
+
+  Future<void> rememberPlace(String name, String nameBn) async {
+    if (name.isEmpty) return;
+    final all = _p.getStringList(_kPlaces) ?? <String>[];
+    all.removeWhere((s) => s.split(_sep).first == name);
+    all.insert(0, '$name$_sep$nameBn');
+    await _p.setStringList(_kPlaces, all.take(8).toList());
+  }
+
   /* --------------------------------------------------------- preferences */
 
   static const _kBiometric = 'jatra.biometric';

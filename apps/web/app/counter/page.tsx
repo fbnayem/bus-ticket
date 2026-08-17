@@ -6,6 +6,7 @@ import { api, ApiError, type Seat, type SearchResult } from '@/lib/api';
 import { sget, spost } from '@/lib/staff';
 import { queue, quotaCache, terminalId, type QuotaSeat } from '@/lib/offline';
 import { SeatMap } from '@/components/SeatMap';
+import { LocationPicker } from '@/components/LocationPicker';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
@@ -283,14 +284,12 @@ function OnlineSale({ ctx, onSold }: { ctx: CounterContext | null; onSold: () =>
     <div className="stack">
       <form className="card card-pad" onSubmit={search}>
         <div className="row" style={{ gap: '.6rem', alignItems: 'flex-end' }}>
-          <div className="field" style={{ flex: '1 1 160px' }}>
-            <label className="label" htmlFor="c-from">{t('co.from')}</label>
-            <input ref={fromRef} id="c-from" className="input" value={from}
-                   onChange={(e) => setFrom(e.target.value)} />
+          <div style={{ flex: '1 1 160px' }}>
+            <LocationPicker id="c-from" label={t('co.from')} value={from}
+                            onChange={setFrom} inputRef={fromRef} />
           </div>
-          <div className="field" style={{ flex: '1 1 160px' }}>
-            <label className="label" htmlFor="c-to">{t('co.to')}</label>
-            <input id="c-to" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
+          <div style={{ flex: '1 1 160px' }}>
+            <LocationPicker id="c-to" label={t('co.to')} value={to} onChange={setTo} />
           </div>
           <div className="field" style={{ flex: '0 1 170px' }}>
             <label className="label" htmlFor="c-date">{t('co.date')}</label>

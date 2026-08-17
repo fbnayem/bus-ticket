@@ -55,7 +55,20 @@ const del = <T,>(p: string) => request<T>(p, { method: 'DELETE' });
 
 /* ----------------------------------------------------------------- types */
 
-export interface Location { id: string; name: string; kind: string }
+export interface Location {
+  id: string;
+  name: string;
+  name_bn: string;
+  kind: string;
+  /** District above a terminal, division above a district. Blank when it would
+   *  merely repeat the name, which is the case for all eight divisions named
+   *  after their own main district. */
+  parent: string;
+  /** Whether any trip on the rolling horizon starts or ends here. Unserved
+   *  places are still offered — a passenger whose district exists should see
+   *  it — but the form says plainly that we run nothing there yet. */
+  served: boolean;
+}
 
 export interface SearchResult {
   trip_id: string;
@@ -183,7 +196,9 @@ export interface SavedPassenger {
 /* --------------------------------------------------------------- endpoints */
 
 export const api = {
-  locations: (q = '') => get<{ locations: Location[] }>(`/locations?q=${encodeURIComponent(q)}`),
+  locations: (q = '', limit = 0) =>
+    get<{ locations: Location[] }>(
+      `/locations?q=${encodeURIComponent(q)}${limit ? `&limit=${limit}` : ''}`),
 
   search: (from: string, to: string, date: string) =>
     get<SearchResponse>(`/search?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&date=${date}`),

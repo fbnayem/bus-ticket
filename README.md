@@ -102,6 +102,8 @@ node scripts/browser-flow.mjs      # 37 checks — search → pay → ticket →
 node scripts/staff-flow.mjs        # 86 checks — all six staff apps and every console,
                                    #             including a real network cut
 node scripts/lang-audit.mjs        # every Bangla surface, working AND failing
+node scripts/place-picker.mjs      # 18 checks — typos, Bangla input, terminals,
+                                   #             and what the field submits
 ```
 
 **The browser suites need a production build, not `npm run dev`.** The ticket's
@@ -269,6 +271,28 @@ No search query touches `catalog.trips`, `inventory.trip_seats` or
 `commerce.bookings`. Every response states how stale the projection was and
 whether the page came from cache.
 
+### Places
+
+`GET /api/v1/locations` is the single suggestion source behind every place field
+in the product — passenger web and app, counter, agent quota and agent sell. It
+ranks in four tiers: exact, prefix, contains, then **trigram similarity**, so
+`chitagong`, `commilla` and `mymansing` all resolve. Similarity is measured
+against the aliases as well as the names, which is why a typo of a *pre-2018*
+spelling still lands — the country renamed Chittagong, Comilla, Jessore, Barisal
+and Bogra in 2018 and the tickets in people's drawers did not change.
+
+Two decisions in that endpoint are worth stating outright:
+
+- **Places we do not serve are returned, not hidden**, flagged `served: false`.
+  Hiding a real district makes the field look broken to the person who lives in
+  it; saying *no buses yet* is a fact they can act on. An empty box is the one
+  exception — with nothing typed there is nothing to rank on, so it opens with
+  places we actually run buses to.
+- **What the field shows and what it submits are different things.** A Bangla
+  reader sees ঢাকা; the form submits `Dhaka`. They must never merge, or every
+  Bangla search silently stops resolving — which is what
+  `scripts/place-picker.mjs` exists to catch.
+
 ### Identity
 
 Passengers: phone plus a one-time code, optional password, guest checkout that
@@ -402,14 +426,20 @@ four channels, one seat, exactly one winner  — web=201 counter=409 agent=409 q
 Real Chromium sessions, clicks and keystrokes only — no direct API calls, so
 they fail if an application is wired up wrongly even when the backend is perfect.
 
-**Passenger** (`apps/web/scripts/browser-flow.mjs`, 33 checks) — search
+**Passenger** (`apps/web/scripts/browser-flow.mjs`, 37 checks) — search
 `Dhaka → ctg` with the alias resolved, AC filter, price sort, a 36-seat map, hold
 with countdown, sandbox payment, **PNR confirmed by webhook**, a real QR, ৳1,832
 refund quote, cancellation, **both cancelled seats sellable again** — then
 **signed out the account shows nothing**, a one-time code signs the passenger in,
 and **the trip they booked as a guest is waiting for them**. No console errors.
 
-**All six staff apps** (`apps/web/scripts/staff-flow.mjs`, 85 checks):
+**The place picker** (`apps/web/scripts/place-picker.mjs`, 18 checks) — `chitagong`
+finds Chattogram, `jessore` finds Jashore, `gabtoli` finds the terminal and says
+it is in Dhaka, typing `কুমি` finds কুমিল্লা, a district we do not serve is offered
+and labelled **no buses yet**, and — the check that matters — the field shows
+ঢাকা to a Bangla reader while submitting `Dhaka`.
+
+**All six staff apps** (`apps/web/scripts/staff-flow.mjs`, 86 checks):
 
 | Step | Result |
 |---|---|
@@ -524,6 +554,12 @@ db/migrations/            applied by Postgres initdb on first boot
   015_staff_mfa.sql       one-time codes are good exactly once
   016_corridor_capacity.sql  a second Green Line departure, so the fixture holds
   017_dhaka_today.sql     one definition of "today", and it is Dhaka's
+  018_campaign_bangla.sql campaign copy carries its own Bangla, not a lookup
+  019_gazetteer.sql       the place names of Bangladesh: 8 divisions, all 64
+                          districts, 40 intercity terminals and the destinations
+                          that are not districts (Kuakata, Sreemangal, Benapole,
+                          Teknaf) — each with its Bangla name, its district, and
+                          the pre-2018 spelling still printed on people's tickets
 
 services/
   inventory/inventory/    the ONLY code permitted to mutate seat state
@@ -555,6 +591,9 @@ apps/mobile/              two Flutter applications + the package they share
   app/                    passenger routes at the root; /counter /agent /operator
                           /admin /helpdesk /driver /staff for the six workplaces
   components/StaffShell   the staff chrome, nav and permission gate
+  components/LocationPicker  the place field — suggests rather than accepts, and
+                          shows the reader's language while submitting the
+                          platform's canonical name
   lib/api.ts              typed client for the passenger REST API
   lib/auth.ts             passenger sign-in, refresh rotation
   lib/staff.ts            bearer-token client that fails closed on 401
@@ -564,6 +603,7 @@ apps/mobile/              two Flutter applications + the package they share
   public/ticket-sw.js     the ticket's offline shell — never caches the API either
   scripts/                browser-flow.mjs (passenger) · staff-flow.mjs (six apps)
                           lang-audit.mjs (every Bangla surface, working and failing)
+                          place-picker.mjs (typos, Bangla input, what it submits)
 
 scripts/smoke.mjs           38-check passenger API flow
 scripts/channels-smoke.mjs  77-check staff channel API flow

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,20 +21,33 @@ import (
 // seat map and every hold still go to inventory-service, which may not be.
 
 type locationDTO struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Kind string `json:"kind"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	NameBn string `json:"name_bn"`
+	Kind   string `json:"kind"`
+	Parent string `json:"parent"`
+	Served bool   `json:"served"`
 }
 
+// GET /api/v1/locations?q=&limit=
+//
+// The suggestion source behind every place field in the product. It answers
+// with the name in both languages and the district above it, because the
+// client should never have to guess how to label a place, and never has to
+// hold a copy of the gazetteer to do it.
 func (s *Server) handleLocations(w http.ResponseWriter, r *http.Request) {
-	locs, err := s.idx.Locations(r.Context(), r.URL.Query().Get("q"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	locs, err := s.idx.Suggest(r.Context(), r.URL.Query().Get("q"), limit)
 	if err != nil {
 		fail(w, 500, "query_failed", "Could not load locations.")
 		return
 	}
 	out := make([]locationDTO, 0, len(locs))
 	for _, l := range locs {
-		out = append(out, locationDTO{ID: l.ID, Name: l.Name, Kind: l.Kind})
+		out = append(out, locationDTO{
+			ID: l.ID, Name: l.Name, NameBn: l.NameBn,
+			Kind: l.Kind, Parent: l.Parent, Served: l.Served,
+		})
 	}
 	writeJSON(w, 200, map[string]any{"locations": out})
 }

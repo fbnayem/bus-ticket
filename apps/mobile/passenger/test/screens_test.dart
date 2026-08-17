@@ -102,9 +102,40 @@ TripSummary _trip() => TripSummary.fromJson({
       'drop_seq': 3,
     });
 
+/// The gazetteer, shaped the way the platform shapes it.
+///
+/// Field names are taken from a real `/locations` response, not from the model
+/// that reads it — a fixture written from the client's assumptions is how the
+/// crew roster came to read `role` for a year while the platform sent
+/// `crew_role`, with the test agreeing with the bug.
+List<Map<String, dynamic>> _places(String q) {
+  const all = [
+    {'id': 'l1', 'name': 'Dhaka', 'name_bn': 'ঢাকা', 'kind': 'CITY',
+     'parent': '', 'served': true},
+    {'id': 'l2', 'name': 'Chattogram', 'name_bn': 'চট্টগ্রাম', 'kind': 'CITY',
+     'parent': '', 'served': true},
+    {'id': 'l3', 'name': 'Cumilla', 'name_bn': 'কুমিল্লা', 'kind': 'CITY',
+     'parent': 'Chattogram', 'served': true},
+    {'id': 'l4', 'name': 'Bandarban', 'name_bn': 'বান্দরবান', 'kind': 'CITY',
+     'parent': 'Chattogram', 'served': false},
+    {'id': 'l5', 'name': 'Mohipal', 'name_bn': 'মহিপাল', 'kind': 'TERMINAL',
+     'parent': 'Feni', 'served': false},
+  ];
+  if (q.isEmpty) return all.where((p) => p['served'] == true).toList();
+  final n = q.toLowerCase();
+  return all
+      .where((p) => '${p['name']}${p['name_bn']}'.toLowerCase().contains(n))
+      .toList();
+}
+
 /// Answers whatever the screen under test asks for.
-MockClient _platform({Map<String, dynamic>? seatMap}) => MockClient((req) async {
+MockClient _platform({Map<String, dynamic>? seatMap, bool placesFail = false}) =>
+    MockClient((req) async {
       final p = req.url.path;
+      if (p.endsWith('/locations')) {
+        if (placesFail) return _json(const {'error': 'unreachable'}, 503);
+        return _json({'locations': _places(req.url.queryParameters['q'] ?? '')});
+      }
       if (p.endsWith('/seatmap')) return _json(seatMap ?? const {'seats': []});
       if (p.endsWith('/offers')) {
         return _json({
@@ -125,12 +156,18 @@ MockClient _platform({Map<String, dynamic>? seatMap}) => MockClient((req) async 
 Future<AppState> _state({
   List<String> tickets = const [],
   Map<String, dynamic>? seatMap,
+  bool placesFail = false,
+  List<String> recentPlaces = const [],
 }) async {
-  SharedPreferences.setMockInitialValues({'jatra.tickets': tickets});
+  SharedPreferences.setMockInitialValues({
+    'jatra.tickets': tickets,
+    if (recentPlaces.isNotEmpty) 'jatra.places.recent': recentPlaces,
+  });
   final store = await Store.open();
   return AppState(
-    api: PassengerApi(
-        ApiClient(base: 'http://test/api/v1', httpClient: _platform(seatMap: seatMap))),
+    api: PassengerApi(ApiClient(
+        base: 'http://test/api/v1',
+        httpClient: _platform(seatMap: seatMap, placesFail: placesFail))),
     store: store,
     // Constructed directly rather than through start(), which would try to talk
     // to a notification plugin that does not exist in a test binding.
@@ -156,8 +193,82 @@ void main() {
     await tester.pump();
 
     expect(find.text(const L(Lang.bn)('find.go')), findsOneWidget);
-    expect(find.text('Dhaka'), findsOneWidget);
+    // A Bangla reader sees the Bangla name of the place. The canonical name is
+    // what travels to the platform, and is checked where that matters below.
+    expect(find.text('ঢাকা'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  /* ------------------------------------------------------- place picking */
+
+  testWidgets('tapping a place field opens a searchable list, not a text box',
+      (tester) async {
+    final state = await _state();
+    await tester.pumpWidget(_wrap(state, const HomeScreen()));
+    await tester.pump();
+
+    await tester.tap(find.text('ঢাকা'));
+    await tester.pumpAndSettle();
+
+    // Only places we actually run buses to, before anything is typed.
+    expect(find.text('কুমিল্লা'), findsOneWidget);
+    expect(find.text('বান্দরবান'), findsNothing,
+        reason: 'an untyped list must not open with somewhere we do not serve');
+  });
+
+  testWidgets('a place we do not serve is offered, and says so', (tester) async {
+    final state = await _state();
+    await tester.pumpWidget(_wrap(state, const HomeScreen()));
+    await tester.pump();
+
+    await tester.tap(find.text('ঢাকা'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'বান্দর');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(find.text('বান্দরবান'), findsOneWidget,
+        reason: 'hiding a real district makes the field look broken to whoever lives there');
+    expect(find.text(const L(Lang.bn)('place.noBuses')), findsWidgets,
+        reason: 'and it has to say so before the passenger commits to the route');
+  });
+
+  testWidgets('choosing a place commits the canonical name, not the Bangla one',
+      (tester) async {
+    final state = await _state();
+    await tester.pumpWidget(_wrap(state, const HomeScreen()));
+    await tester.pump();
+
+    await tester.tap(find.text('চট্টগ্রাম'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('কুমিল্লা').last);
+    await tester.pumpAndSettle();
+
+    // The field reads Bangla...
+    expect(find.text('কুমিল্লা'), findsOneWidget);
+    // ...and the device remembered the canonical name, which is what a search
+    // is built from. If these ever merge, every Bangla search stops resolving.
+    expect(state.store.recentPlaces().first.name, 'Cumilla');
+  });
+
+  testWidgets('with no network the picker offers places used before', (tester) async {
+    final state = await _state(
+      placesFail: true,
+      // The store separates the two names with U+0001. Written as an escape
+      // rather than pasted in, because the character itself is invisible in a
+      // diff and reads like corruption to whoever finds it next.
+      recentPlaces: ['Sylhet\u0001সিলেট', 'Khulna\u0001খুলনা'],
+    );
+    await tester.pumpWidget(_wrap(state, const HomeScreen()));
+    await tester.pump();
+
+    await tester.tap(find.text('ঢাকা'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('সিলেট'), findsOneWidget,
+        reason: 'a picker that needs signal fails exactly where it is used');
+    expect(find.text(const L(Lang.bn)('place.offline')), findsOneWidget,
+        reason: 'and it should say the list is old rather than imply it is complete');
   });
 
   testWidgets('the tickets screen mounts with nothing in it and says what to do',

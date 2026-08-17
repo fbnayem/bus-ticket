@@ -485,6 +485,43 @@ a:hover { text-decoration: underline; }
 .hint { font-size: .78rem; color: var(--muted); }
 .err  { font-size: .8rem; color: var(--danger); }
 
+/* ------------------------------------------------------------ place picker
+   The suggestion list for a city or terminal. It floats over the form rather
+   than pushing it down: a list that reflows the page moves the field out from
+   under the cursor on the very keystroke that opened it.
+--------------------------------------------------------------------------- */
+.place-field { position: relative; }
+.place-list {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 40;
+  margin: .25rem 0 0; padding: .25rem; list-style: none;
+  max-height: 19rem; overflow-y: auto; overscroll-behavior: contain;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-2, 0 10px 30px rgb(0 0 0 / .13));
+}
+.place-opt {
+  display: flex; align-items: baseline; justify-content: space-between; gap: .6rem;
+  padding: .5rem .55rem; border-radius: calc(var(--radius-sm) - 2px);
+  cursor: pointer;
+}
+.place-opt.is-active { background: var(--brand-tint); }
+.place-main { display: flex; align-items: baseline; gap: .45rem; min-width: 0; }
+.place-name { font-weight: 600; }
+/* The other language sits beside the name, not under it: the row has to stay
+   one line tall or eight suggestions become a scrolling page. */
+.place-alt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.place-meta { display: flex; align-items: baseline; gap: .4rem; flex: none; }
+.place-kind, .place-cold {
+  border-radius: 999px; padding: .05rem .4rem; font-size: .7rem; font-weight: 620;
+}
+.place-kind { background: var(--field-tint); color: var(--field); }
+.place-cold { background: var(--warn-tint);  color: var(--warn); }
+.place-empty {
+  display: flex; flex-direction: column; gap: .15rem;
+  padding: .7rem .55rem;
+}
+
 /* ------------------------------------------------------- the search couplet
    From and To are one decision, not two fields, and the swap control belongs
    between them. Stacked on a phone it becomes a round button straddling the

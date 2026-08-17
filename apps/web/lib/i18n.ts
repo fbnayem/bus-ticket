@@ -105,6 +105,18 @@ const S = {
   'search.pickFrom':       { en: 'Choose a starting point',   bn: 'যাত্রা শুরুর স্থান বাছুন' },
   'search.pickTo':         { en: 'Choose a destination',      bn: 'গন্তব্য বাছুন' },
   'search.sameCity':       { en: 'Choose two different places.', bn: 'দুটি আলাদা জায়গা বাছুন।' },
+
+  /* ----------------------------------------------------- the place picker */
+  // Latin place names stay Latin in both locales by policy, but everything
+  // the interface says *about* a place is translated.
+  'place.search':          { en: 'Type a city or terminal',   bn: 'শহর বা কাউন্টারের নাম লিখুন' },
+  'place.noMatch':         { en: 'No place by that name',     bn: 'এই নামে কোনো জায়গা নেই' },
+  'place.noMatchHint':     { en: 'Check the spelling, or try the district name.', bn: 'বানান দেখে নিন, বা জেলার নাম লিখুন।' },
+  'place.noBuses':         { en: 'no buses yet',              bn: 'এখনও বাস নেই' },
+  'place.terminal':        { en: 'terminal',                  bn: 'কাউন্টার' },
+  'place.popular':         { en: 'Busiest routes',            bn: 'ব্যস্ততম রুট' },
+  'place.clear':           { en: 'Clear',                     bn: 'মুছুন' },
+  'place.unserved':        { en: 'We do not run buses to this place yet.', bn: 'এই জায়গায় আমরা এখনও বাস চালাই না।' },
   'search.results':        { en: 'buses found',              bn: 'টি বাস পাওয়া গেছে' },
   'search.noResults':      { en: 'No buses on this route today', bn: 'এই রুটে আজ কোনো বাস নেই' },
   'search.noResultsHint':  { en: 'Try another date, or a nearby boarding point.', bn: 'অন্য তারিখ বা কাছের কোনো কাউন্টার দেখুন।' },

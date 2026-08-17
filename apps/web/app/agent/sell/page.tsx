@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { api, ApiError, type Seat, type SearchResult } from '@/lib/api';
 import { sget, spost } from '@/lib/staff';
 import { SeatMap } from '@/components/SeatMap';
+import { LocationPicker } from '@/components/LocationPicker';
 import { ErrorNotice } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
 import { useLang } from '@/components/LangProvider';
@@ -146,13 +147,11 @@ export default function AgentSellPage() {
 
       <form className="card card-pad" onSubmit={search}>
         <div className="row" style={{ gap: '.6rem', alignItems: 'flex-end' }}>
-          <div className="field" style={{ flex: '1 1 150px' }}>
-            <label className="label" htmlFor="a-from">{t('co.from')}</label>
-            <input id="a-from" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <div style={{ flex: '1 1 150px' }}>
+            <LocationPicker id="a-from" label={t('co.from')} value={from} onChange={setFrom} />
           </div>
-          <div className="field" style={{ flex: '1 1 150px' }}>
-            <label className="label" htmlFor="a-to">{t('co.to')}</label>
-            <input id="a-to" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
+          <div style={{ flex: '1 1 150px' }}>
+            <LocationPicker id="a-to" label={t('co.to')} value={to} onChange={setTo} />
           </div>
           <div className="field" style={{ flex: '0 1 170px' }}>
             <label className="label" htmlFor="a-date">{t('co.date')}</label>

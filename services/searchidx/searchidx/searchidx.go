@@ -164,24 +164,42 @@ func (ix *Indexer) invalidate(ctx context.Context) {
 }
 
 func (ix *Indexer) reindexLocations(ctx context.Context) error {
+	// The blob carries the Bangla name and the parent's name as well as every
+	// alias. Bangla because that is what half the country types; the parent
+	// because "Mohipal" is a place a passenger knows and "Mohipal, Feni" is the
+	// one they can be sure about.
 	if _, err := ix.pool.Exec(ctx, `
-		INSERT INTO search.location_index (location_id, name, kind, aliases, search_blob, indexed_at)
-		SELECT l.location_id, l.name, l.kind,
+		INSERT INTO search.location_index
+		       (location_id, name, name_bn, kind, parent_name, aliases, search_blob, indexed_at)
+		-- NULLIF, because eight divisions carry the name of their own main
+		-- district: without it the busiest cities in the country would each
+		-- be labelled "Chattogram · Chattogram" on every dropdown.
+		SELECT l.location_id, l.name, l.name_bn, l.kind, COALESCE(NULLIF(p.name, l.name), ''),
 		       COALESCE(array_agg(a.alias) FILTER (WHERE a.alias IS NOT NULL), '{}'),
-		       lower(l.name || ' ' || COALESCE(string_agg(a.alias, ' '), '')),
+		       lower(l.name || ' ' || l.name_bn || ' ' || COALESCE(p.name, '') || ' '
+		             || COALESCE(string_agg(a.alias, ' '), '')),
 		       now()
 		  FROM catalog.locations l
+		  LEFT JOIN catalog.locations p ON p.location_id = l.parent_id
 		  LEFT JOIN catalog.location_aliases a ON a.location_id = l.location_id
 		 WHERE l.kind IN ('CITY','TERMINAL')
-		 GROUP BY l.location_id, l.name, l.kind
+		 GROUP BY l.location_id, l.name, l.name_bn, l.kind, p.name
 		ON CONFLICT (location_id) DO UPDATE
-		   SET aliases = EXCLUDED.aliases, search_blob = EXCLUDED.search_blob, indexed_at = now()`); err != nil {
+		   SET name        = EXCLUDED.name,
+		       name_bn     = EXCLUDED.name_bn,
+		       parent_name = EXCLUDED.parent_name,
+		       aliases     = EXCLUDED.aliases,
+		       search_blob = EXCLUDED.search_blob,
+		       indexed_at  = now()`); err != nil {
 		return err
 	}
 	_, err := ix.pool.Exec(ctx, `
 		UPDATE search.location_index li
 		   SET trips_from = COALESCE((SELECT count(DISTINCT trip_id) FROM search.trip_legs
 		                               WHERE origin_id = li.location_id
+		                                 AND service_date >= catalog.bd_today()), 0),
+		       trips_to   = COALESCE((SELECT count(DISTINCT trip_id) FROM search.trip_legs
+		                               WHERE dest_id = li.location_id
 		                                 AND service_date >= catalog.bd_today()), 0)`)
 	return err
 }
@@ -336,23 +354,111 @@ func (ix *Indexer) ResolveLocation(ctx context.Context, input string) (id, name 
 	n := strings.ToLower(strings.TrimSpace(input))
 	err = ix.pool.QueryRow(ctx, `
 		SELECT location_id::text, name FROM search.location_index
-		 WHERE lower(name) = $1 OR $1 = ANY(aliases) OR location_id::text = $1
+		 WHERE lower(name) = $1 OR lower(name_bn) = $1
+		    OR $1 = ANY(aliases) OR location_id::text = $1
 		 ORDER BY (lower(name) = $1) DESC LIMIT 1`, n).Scan(&id, &name)
-	return id, name, err
+	if err == nil {
+		return id, name, nil
+	}
+	// Nothing matched exactly. Before refusing the search outright, allow a
+	// clear misspelling of a real place — someone who typed "chitagong" meant
+	// Chattogram and should get buses, not a rejection.
+	//
+	// The threshold is high on purpose. A weak match resolving to the wrong
+	// district would sell somebody a ticket to a city they never named, which
+	// is far worse than making them retype.
+	var sim float64
+	e2 := ix.pool.QueryRow(ctx, `
+		SELECT location_id::text, name,
+		       GREATEST(similarity(lower(name), $1), similarity(lower(name_bn), $1),
+		                COALESCE((SELECT max(similarity(a, $1)) FROM unnest(aliases) a), 0)) AS sim
+		  FROM search.location_index
+		 ORDER BY sim DESC LIMIT 1`, n).Scan(&id, &name, &sim)
+	if e2 == nil && sim >= 0.45 {
+		return id, name, nil
+	}
+	return "", "", err
 }
 
 type Location struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Kind string `json:"kind"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	NameBn string `json:"name_bn"`
+	Kind   string `json:"kind"`
+	// Parent is the district a terminal sits in, or the division a district
+	// sits in. It is what separates the several -ganj towns on a dropdown.
+	Parent string `json:"parent"`
+	// Served says whether any trip on the rolling horizon starts or ends here.
+	// Unserved places are still offered — hiding them makes the field look
+	// broken to someone whose district plainly exists — but they sort last and
+	// the caller can say so plainly instead of returning an empty result page.
+	Served bool `json:"served"`
+	Trips  int  `json:"trips"`
 }
 
-func (ix *Indexer) Locations(ctx context.Context, q string) ([]Location, error) {
+// Suggest ranks the gazetteer against what somebody has typed so far.
+//
+// Four tiers, in the order a person expects them:
+//
+//	0  exact      — they typed the whole name, or an alias of it
+//	1  prefix     — they are part-way through typing it
+//	2  contains   — the words match somewhere ("bazar" finds Cox's Bazar)
+//	3  similar    — they misspelled it, and pg_trgm still recognises it
+//
+// Tier 3 is the one that earns its keep. "chitagong", "commilla" and
+// "mymansing" are all things people type, and all of them resolve, because
+// similarity is measured against the aliases too — the alias list already
+// carries the old spellings, so a typo of an old spelling still lands.
+//
+// This is a sequential scan with a similarity() call per row, and deliberately
+// so: the table is the place names of one country, a few hundred rows, and it
+// is cached. The trigram index on search_blob carries the LIKE; measuring
+// similarity against the aliases as well is what a GIN index cannot do for us.
+func (ix *Indexer) Suggest(ctx context.Context, q string, limit int) ([]Location, error) {
 	n := strings.ToLower(strings.TrimSpace(q))
+	if limit <= 0 || limit > 50 {
+		limit = 12
+	}
 	rows, err := ix.pool.Query(ctx, `
-		SELECT location_id::text, name, kind FROM search.location_index
-		 WHERE $1 = '' OR search_blob LIKE '%'||$1||'%'
-		 ORDER BY trips_from DESC, name LIMIT 25`, n)
+		WITH scored AS (
+		  SELECT location_id, name, name_bn, kind, parent_name,
+		         trips_from + trips_to AS trips,
+		         GREATEST(
+		           similarity(lower(name), $1),
+		           similarity(lower(name_bn), $1),
+		           COALESCE((SELECT max(similarity(a, $1)) FROM unnest(aliases) a), 0)
+		         ) AS sim,
+		         CASE
+		           -- An empty box is the state the field is in the moment it
+		           -- is tapped. Everything ties at tier 0 and the ordering
+		           -- below falls through to "places we actually run buses
+		           -- to, busiest first" — which is the list to open with.
+		           WHEN $1 = '' THEN 0
+		           WHEN lower(name) = $1 OR lower(name_bn) = $1 OR $1 = ANY(aliases) THEN 0
+		           WHEN lower(name) LIKE $1 || '%' OR lower(name_bn) LIKE $1 || '%'
+		             OR EXISTS (SELECT 1 FROM unnest(aliases) a WHERE a LIKE $1 || '%') THEN 1
+		           WHEN search_blob LIKE '%' || $1 || '%' THEN 2
+		           ELSE 3
+		         END AS tier
+		    FROM search.location_index
+		)
+		SELECT location_id::text, name, name_bn, kind, parent_name, trips
+		  FROM scored
+		 WHERE (tier < 3 OR sim >= 0.28)
+		   -- An empty box offers only places we actually run buses to. Padding
+		   -- that first list alphabetically with somewhere we do not serve
+		   -- invites a passenger to pick it before they have typed anything.
+		   -- The NOT EXISTS is the honest fallback: on a platform with no
+		   -- trips loaded at all, a short list beats a blank one.
+		   AND ($1 <> '' OR trips > 0
+		        OR NOT EXISTS (SELECT 1 FROM scored WHERE trips > 0))
+		 ORDER BY tier,
+		          (trips = 0),
+		          sim DESC,
+		          (kind <> 'CITY'),
+		          trips DESC,
+		          name
+		 LIMIT $2`, n, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -360,10 +466,17 @@ func (ix *Indexer) Locations(ctx context.Context, q string) ([]Location, error) 
 	out := []Location{}
 	for rows.Next() {
 		var l Location
-		if err := rows.Scan(&l.ID, &l.Name, &l.Kind); err != nil {
+		if err := rows.Scan(&l.ID, &l.Name, &l.NameBn, &l.Kind, &l.Parent, &l.Trips); err != nil {
 			return nil, err
 		}
+		l.Served = l.Trips > 0
 		out = append(out, l)
 	}
 	return out, rows.Err()
+}
+
+// Locations keeps the older, unranked shape for callers that just want the
+// list (the counter's quota screen, the partner API).
+func (ix *Indexer) Locations(ctx context.Context, q string) ([]Location, error) {
+	return ix.Suggest(ctx, q, 25)
 }

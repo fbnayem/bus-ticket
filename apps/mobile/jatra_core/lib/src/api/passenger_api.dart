@@ -12,8 +12,9 @@ class PassengerApi {
   PassengerApi(this.c);
   final ApiClient c;
 
-  Future<List<Place>> places([String q = '']) async {
-    final r = await c.get('/locations?q=${Uri.encodeQueryComponent(q)}');
+  Future<List<Place>> places([String q = '', int limit = 0]) async {
+    final r = await c.get('/locations?q=${Uri.encodeQueryComponent(q)}'
+        '${limit > 0 ? '&limit=$limit' : ''}');
     return (r['locations'] as List? ?? const [])
         .map((e) => Place.fromJson(e as Map<String, dynamic>))
         .toList(growable: false);

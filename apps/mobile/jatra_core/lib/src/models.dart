@@ -14,10 +14,38 @@ List<String> _strs(Object? v) =>
     v is List ? v.map((e) => '$e').toList(growable: false) : const [];
 
 class Place {
-  Place(this.id, this.name, this.kind);
-  factory Place.fromJson(Map<String, dynamic> j) =>
-      Place(_str(j['id']), _str(j['name']), _str(j['kind']));
-  final String id, name, kind;
+  Place(this.id, this.name, this.kind,
+      {this.nameBn = '', this.parent = '', this.served = true});
+  factory Place.fromJson(Map<String, dynamic> j) => Place(
+        _str(j['id']),
+        _str(j['name']),
+        _str(j['kind']),
+        nameBn: _str(j['name_bn']),
+        // The district above a terminal, or the division above a district.
+        // Blank when it would only repeat the name.
+        parent: _str(j['parent']),
+        // Whether any trip on the rolling horizon starts or ends here. Places
+        // we do not serve are still offered — somebody whose own district
+        // exists should find it — but the field says so instead of returning
+        // an empty result page after they have committed to it.
+        served: j['served'] == null ? true : _bool(j['served']),
+      );
+  final String id, name, kind, nameBn, parent;
+  final bool served;
+
+  bool get isTerminal => kind == 'TERMINAL';
+
+  /// What to put in front of a reader, in their own language, falling back to
+  /// whichever name exists.
+  String label(bool bangla) =>
+      bangla ? (nameBn.isNotEmpty ? nameBn : name) : (name.isNotEmpty ? name : nameBn);
+
+  /// The other language's name, for the line beside it — empty when there is
+  /// only one name, so the row does not render a duplicate.
+  String alt(bool bangla) {
+    final other = bangla ? name : nameBn;
+    return other == label(bangla) ? '' : other;
+  }
 }
 
 class TripSummary {

@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, type Location } from '@/lib/api';
 import { isoDate } from '@/lib/format';
 import { useT } from './LangProvider';
+import { LocationPicker } from './LocationPicker';
 
 export function SearchForm({
   initialFrom = 'Dhaka',
@@ -19,15 +19,10 @@ export function SearchForm({
 }) {
   const router = useRouter();
   const t = useT();
-  const [locations, setLocations] = useState<Location[]>([]);
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   const [date, setDate] = useState(initialDate ?? isoDate(new Date(Date.now() + 864e5)));
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    api.locations().then((r) => setLocations(r.locations)).catch(() => {});
-  }, []);
 
   const swap = () => { setFrom(to); setTo(from); };
 
@@ -48,13 +43,10 @@ export function SearchForm({
         gridTemplateColumns: compact ? '1fr auto 1fr 1fr auto' : '1fr auto 1fr',
         gap: '.6rem', alignItems: 'end',
       }} className="search-grid">
-        <div className="field">
-          <label className="label" htmlFor="from">{t('search.from')}</label>
-          <input
-            id="from" className="input" list="loc-list" value={from} autoComplete="off"
-            onChange={(e) => setFrom(e.target.value)} placeholder={t('search.pickFrom')} required
-          />
-        </div>
+        <LocationPicker
+          id="from" label={t('search.from')} value={from} onChange={setFrom}
+          placeholder={t('search.pickFrom')}
+        />
 
         <button
           type="button" className="btn btn-ghost swap-btn" onClick={swap}
@@ -63,13 +55,10 @@ export function SearchForm({
           <span aria-hidden="true">⇄</span>
         </button>
 
-        <div className="field">
-          <label className="label" htmlFor="to">{t('search.to')}</label>
-          <input
-            id="to" className="input" list="loc-list" value={to} autoComplete="off"
-            onChange={(e) => setTo(e.target.value)} placeholder={t('search.pickTo')} required
-          />
-        </div>
+        <LocationPicker
+          id="to" label={t('search.to')} value={to} onChange={setTo}
+          placeholder={t('search.pickTo')}
+        />
 
         {compact && (
           <>
@@ -99,11 +88,6 @@ export function SearchForm({
       )}
 
       {error && <p className="err" role="alert" style={{ margin: 0 }}>{error}</p>}
-
-      <datalist id="loc-list">
-        {locations.map((l) => <option key={l.id} value={l.name} />)}
-      </datalist>
-
     </form>
   );
 }
