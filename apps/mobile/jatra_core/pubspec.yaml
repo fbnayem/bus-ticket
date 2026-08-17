@@ -1,0 +1,24 @@
+name: jatra_core
+description: >
+  Shared spine for the Jatra mobile applications: the API client, the models it
+  returns, the Bangla/English catalogue, the palette, and the on-device stores
+  that let a ticket and a boarding queue survive with no signal.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: ^3.9.0
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  shared_preferences: ^2.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:

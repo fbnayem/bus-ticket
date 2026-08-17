@@ -1,0 +1,10 @@
+# Build and tool output. Nothing here is authored.
+.dart_tool/
+.packages
+build/
+pubspec.lock
+doc/api/
+
+# Editors
+*.iml
+.idea/

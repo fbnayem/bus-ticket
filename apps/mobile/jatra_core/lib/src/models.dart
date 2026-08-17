@@ -1,0 +1,399 @@
+// The shapes the platform returns.
+//
+// Every money field is an integer of poisha, never a double. A fare is
+// 120000 poisha, not 1200.0 taka — the plan is explicit that no float touches
+// money anywhere, and a rounding error in a currency is not a display bug, it
+// is a missing taka in somebody's drawer at closing time.
+
+int _int(Object? v) => v is num ? v.toInt() : int.tryParse('${v ?? ''}') ?? 0;
+String _str(Object? v) => v == null ? '' : '$v';
+bool _bool(Object? v) => v == true;
+List<String> _strs(Object? v) =>
+    v is List ? v.map((e) => '$e').toList(growable: false) : const [];
+
+class Place {
+  Place(this.id, this.name, this.kind);
+  factory Place.fromJson(Map<String, dynamic> j) =>
+      Place(_str(j['id']), _str(j['name']), _str(j['kind']));
+  final String id, name, kind;
+}
+
+class TripSummary {
+  TripSummary.fromJson(Map<String, dynamic> j)
+      : tripId = _str(j['trip_id']),
+        brand = _str(j['brand']),
+        busType = _str(j['bus_type']),
+        isAc = _bool(j['is_ac']),
+        seatClass = _str(j['class']),
+        registration = _str(j['registration']),
+        departAt = _str(j['depart_at']),
+        arriveAt = _str(j['arrive_at']),
+        durationMin = _int(j['duration_min']),
+        boardSeq = _int(j['board_seq']),
+        dropSeq = _int(j['drop_seq']),
+        origin = _str(j['origin']),
+        destination = _str(j['destination']),
+        farePoisha = _int(j['fare_poisha']),
+        availableSeats = _int(j['available_seats']),
+        totalSeats = _int(j['total_seats']),
+        amenities = _strs(j['amenities']);
+
+  final String tripId, brand, busType, seatClass, registration;
+  final String departAt, arriveAt, origin, destination;
+  final bool isAc;
+  final int durationMin, boardSeq, dropSeq, farePoisha, availableSeats, totalSeats;
+  final List<String> amenities;
+}
+
+class Stop {
+  Stop.fromJson(Map<String, dynamic> j)
+      : seq = _int(j['seq']),
+        name = _str(j['name']),
+        at = _str(j['at']),
+        passed = _bool(j['passed']);
+  final int seq;
+  final String name, at;
+  final bool passed;
+}
+
+class TripDetail {
+  TripDetail.fromJson(Map<String, dynamic> j)
+      : tripId = _str(j['trip_id']),
+        brand = _str(j['brand']),
+        busType = _str(j['bus_type']),
+        isAc = _bool(j['is_ac']),
+        seatClass = _str(j['class']),
+        registration = _str(j['registration']),
+        routeName = _str(j['route_name']),
+        departAt = _str(j['depart_at']),
+        farePoisha = _int(j['fare_poisha']),
+        boardSeq = _int(j['board_seq']),
+        dropSeq = _int(j['drop_seq']),
+        durationMin = _int(j['duration_min']),
+        amenities = _strs(j['amenities']),
+        stops = (j['stops'] as List? ?? const [])
+            .map((e) => Stop.fromJson(e as Map<String, dynamic>))
+            .toList(growable: false);
+
+  final String tripId, brand, busType, seatClass, registration, routeName, departAt;
+  final bool isAc;
+  final int farePoisha, boardSeq, dropSeq, durationMin;
+  final List<String> amenities;
+  final List<Stop> stops;
+}
+
+/// One physical seat, as the *central inventory* currently sees it.
+///
+/// Nothing in either app decides this. The app draws what it is told and asks
+/// the platform to hold what the passenger tapped; if two people tap the same
+/// seat, exactly one hold is granted and it is granted by one conditional
+/// UPDATE in the inventory service, not by anything here.
+class Seat {
+  Seat.fromJson(Map<String, dynamic> j)
+      : seatNo = _str(j['seat_no']),
+        seatType = _str(j['seat_type']),
+        deck = _int(j['deck']),
+        row = _int(j['row']),
+        col = _int(j['col']),
+        available = _bool(j['available']),
+        sold = _bool(j['sold']),
+        held = _bool(j['held']),
+        blocked = _bool(j['blocked']);
+
+  final String seatNo, seatType;
+  final int deck, row, col;
+  final bool available, sold, held, blocked;
+
+  bool get femaleReserved => seatType == 'FEMALE';
+}
+
+class SeatMap {
+  SeatMap.fromJson(Map<String, dynamic> j)
+      : tripId = _str(j['trip_id']),
+        boardSeq = _int(j['board_seq']),
+        dropSeq = _int(j['drop_seq']),
+        seats = (j['seats'] as List? ?? const [])
+            .map((e) => Seat.fromJson(e as Map<String, dynamic>))
+            .toList(growable: false);
+  final String tripId;
+  final int boardSeq, dropSeq;
+  final List<Seat> seats;
+}
+
+/// The price, frozen at hold time by the server and never recomputed here.
+class Price {
+  Price.fromJson(Map<String, dynamic> j)
+      : farePoisha = _int(j['fare_poisha']),
+        seatCount = _int(j['seat_count']),
+        basePoisha = _int(j['base_poisha']),
+        serviceFeePoisha = _int(j['service_fee_poisha']),
+        discountPoisha = _int(j['discount_poisha']),
+        totalPoisha = _int(j['total_poisha']),
+        couponCode = _str(j['coupon_code']);
+  final int farePoisha, seatCount, basePoisha, serviceFeePoisha, discountPoisha, totalPoisha;
+  final String couponCode;
+}
+
+class Hold {
+  Hold.fromJson(Map<String, dynamic> j)
+      : holdId = _str(j['hold_id']),
+        tripId = _str(j['trip_id']),
+        seats = _strs(j['seats']),
+        boardSeq = _int(j['board_seq']),
+        dropSeq = _int(j['drop_seq']),
+        expiresAt = _str(j['expires_at']),
+        price = j['price'] == null ? null : Price.fromJson(j['price'] as Map<String, dynamic>);
+  final String holdId, tripId, expiresAt;
+  final List<String> seats;
+  final int boardSeq, dropSeq;
+  final Price? price;
+
+  DateTime get expiry => DateTime.tryParse(expiresAt)?.toLocal() ?? DateTime.now();
+  Duration get remaining => expiry.difference(DateTime.now());
+}
+
+class PassengerDetail {
+  PassengerDetail({required this.seatNo, required this.fullName, this.gender, this.age});
+  final String seatNo, fullName;
+  final String? gender;
+  final int? age;
+
+  Map<String, dynamic> toJson() => {
+        'seat_no': seatNo,
+        'full_name': fullName,
+        if (gender != null && gender!.isNotEmpty) 'gender': gender,
+        if (age != null && age! > 0) 'age': age,
+      };
+}
+
+class TicketStub {
+  TicketStub.fromJson(Map<String, dynamic> j)
+      : ticketId = _str(j['ticket_id']),
+        seatNo = _str(j['seat_no']),
+        qrToken = _str(j['qr_token']),
+        status = _str(j['status']),
+        passenger = _str(j['passenger']);
+  final String ticketId, seatNo, qrToken, status, passenger;
+
+  Map<String, dynamic> toJson() => {
+        'ticket_id': ticketId, 'seat_no': seatNo, 'qr_token': qrToken,
+        'status': status, 'passenger': passenger,
+      };
+}
+
+class Booking {
+  Booking.fromJson(Map<String, dynamic> j)
+      : pnr = _str(j['pnr']),
+        bookingId = _str(j['booking_id']),
+        status = _str(j['status']),
+        totalPoisha = _int(j['total_poisha']),
+        channel = _str(j['channel']),
+        createdAt = _str(j['created_at']),
+        tripId = _str(j['trip_id']),
+        brand = _str(j['brand']),
+        busType = _str(j['bus_type']),
+        registration = _str(j['registration']),
+        departAt = _str(j['depart_at']),
+        origin = _str(j['origin']),
+        destination = _str(j['destination']),
+        phone = _str(j['phone']),
+        seats = _strs(j['seats']),
+        tickets = (j['tickets'] as List? ?? const [])
+            .map((e) => TicketStub.fromJson(e as Map<String, dynamic>))
+            .toList(growable: false),
+        raw = j;
+
+  final String pnr, bookingId, status, channel, createdAt, tripId;
+  final String brand, busType, registration, departAt, origin, destination, phone;
+  final int totalPoisha;
+  final List<String> seats;
+  final List<TicketStub> tickets;
+
+  /// Kept whole so a cached copy can be rebuilt on a device with no signal
+  /// without this class having to be a lossless mirror of the server.
+  final Map<String, dynamic> raw;
+
+  DateTime? get departure => DateTime.tryParse(departAt)?.toLocal();
+  bool get confirmed => status == 'TICKETED' || status == 'CONFIRMED' || status == 'COMPLETED';
+}
+
+class AccountBooking {
+  AccountBooking.fromJson(Map<String, dynamic> j)
+      : pnr = _str(j['pnr']),
+        status = _str(j['status']),
+        totalPoisha = _int(j['total_poisha']),
+        departAt = _str(j['depart_at']),
+        brand = _str(j['brand']),
+        origin = _str(j['origin']),
+        destination = _str(j['destination']),
+        seatCount = _int(j['seat_count']),
+        upcoming = _bool(j['upcoming']);
+  final String pnr, status, departAt, brand, origin, destination;
+  final int totalPoisha, seatCount;
+  final bool upcoming;
+}
+
+class CancellationQuote {
+  CancellationQuote.fromJson(Map<String, dynamic> j)
+      : pnr = _str(j['pnr']),
+        totalPoisha = _int(j['total_poisha']),
+        hoursBefore = _int(j['hours_before']),
+        refundPct = _int(j['refund_pct']),
+        refundPoisha = _int(j['refund_poisha']),
+        feePoisha = _int(j['fee_poisha']),
+        cancellable = _bool(j['cancellable']),
+        reason = _str(j['reason']);
+  final String pnr, reason;
+  final int totalPoisha, hoursBefore, refundPct, refundPoisha, feePoisha;
+  final bool cancellable;
+}
+
+class Tracking {
+  Tracking.fromJson(Map<String, dynamic> j)
+      : pnr = _str(j['pnr']),
+        state = _str(j['state']),
+        departAt = _str(j['depart_at']),
+        arriveAt = _str(j['arrive_at']),
+        progress = _int(j['progress']),
+        source = _str(j['source']),
+        nextStop = _str(j['next_stop']),
+        eta = _str(j['eta']),
+        stops = (j['stops'] as List? ?? const [])
+            .map((e) => Stop.fromJson(e as Map<String, dynamic>))
+            .toList(growable: false);
+  final String pnr, state, departAt, arriveAt, source, nextStop, eta;
+  final int progress;
+  final List<Stop> stops;
+
+  /// Whether the position came from a bus or from a timetable. The passenger is
+  /// told which, because "the bus is 20 minutes away" and "the bus is scheduled
+  /// to be 20 minutes away" are different promises.
+  bool get live => source == 'DRIVER_APP_GPS' || source == 'DEVICE_GPS';
+}
+
+class Offer {
+  Offer.fromJson(Map<String, dynamic> j)
+      : code = _str(j['code']),
+        title = _str(j['title']),
+        titleBn = _str(j['title_bn']),
+        discountPct = _int(j['discount_pct']),
+        discountPoisha = _int(j['discount_poisha']),
+        maxDiscountPoisha = _int(j['max_discount_poisha']),
+        minAmountPoisha = _int(j['min_amount_poisha']),
+        endsAt = _str(j['ends_at']);
+  final String code, title, titleBn, endsAt;
+  final int discountPct, discountPoisha, maxDiscountPoisha, minAmountPoisha;
+}
+
+/* ------------------------------------------------------------------- crew */
+
+class CrewTrip {
+  CrewTrip.fromJson(Map<String, dynamic> j)
+      : tripId = _str(j['trip_id']),
+        departAt = _str(j['depart_at']),
+        route = _str(j['route']),
+        registration = _str(j['registration']),
+        status = _str(j['status']),
+        role = _str(j['role']),
+        busType = _str(j['bus_type']);
+  final String tripId, departAt, route, registration, status, role, busType;
+
+  DateTime? get departure => DateTime.tryParse(departAt)?.toLocal();
+}
+
+class ManifestPassenger {
+  ManifestPassenger.fromJson(Map<String, dynamic> j)
+      : seatNo = _str(j['seat_no']),
+        pnr = _str(j['pnr']),
+        passenger = _str(j['passenger']),
+        phone = _str(j['phone']),
+        channel = _str(j['channel']),
+        ticketStatus = _str(j['ticket_status']),
+        from = _str(j['from']),
+        to = _str(j['to']);
+  final String seatNo, pnr, passenger, phone, channel, ticketStatus, from, to;
+  bool get boarded => ticketStatus == 'BOARDED';
+
+  Map<String, dynamic> toJson() => {
+        'seat_no': seatNo, 'pnr': pnr, 'passenger': passenger, 'phone': phone,
+        'channel': channel, 'ticket_status': ticketStatus, 'from': from, 'to': to,
+      };
+}
+
+class Manifest {
+  Manifest.fromJson(Map<String, dynamic> j)
+      : route = _str((j['trip'] as Map?)?['route']),
+        operatorName = _str((j['trip'] as Map?)?['operator']),
+        registration = _str((j['trip'] as Map?)?['registration']),
+        departAt = _str((j['trip'] as Map?)?['depart_at']),
+        status = _str((j['trip'] as Map?)?['status']),
+        total = _int(j['total']),
+        boarded = _int(j['boarded']),
+        passengers = (j['passengers'] as List? ?? const [])
+            .map((e) => ManifestPassenger.fromJson(e as Map<String, dynamic>))
+            .toList(growable: false),
+        raw = j;
+
+  final String route, operatorName, registration, departAt, status;
+  final int total, boarded;
+  final List<ManifestPassenger> passengers;
+  final Map<String, dynamic> raw;
+}
+
+/// The verdict on a boarding check.
+///
+/// [queued] means this device decided it against the list it downloaded before
+/// leaving, and the platform has not confirmed it yet. The crew is told so
+/// plainly; a provisional yes is never dressed up as a confirmed one.
+class ScanVerdict {
+  ScanVerdict({
+    required this.result,
+    required this.seatNo,
+    required this.pnr,
+    required this.message,
+    this.passenger = '',
+    this.queued = false,
+  });
+
+  factory ScanVerdict.fromJson(Map<String, dynamic> j, {bool queued = false}) => ScanVerdict(
+        result: _str(j['result']),
+        seatNo: _str(j['seat_no']),
+        pnr: _str(j['pnr']),
+        message: _str(j['message']),
+        passenger: _str(j['passenger']),
+        queued: queued,
+      );
+
+  final String result, seatNo, pnr, message, passenger;
+  final bool queued;
+
+  bool get letThemOn => result == 'BOARDED';
+  bool get alreadyOn => result == 'ALREADY_BOARDED';
+}
+
+class Incident {
+  Incident.fromJson(Map<String, dynamic> j)
+      : incidentId = _str(j['incident_id']),
+        kind = _str(j['kind']),
+        severity = _str(j['severity']),
+        note = _str(j['note']),
+        createdAt = _str(j['created_at']),
+        reportedBy = _str(j['reported_by']),
+        route = _str(j['route']),
+        departAt = _str(j['depart_at']);
+  final String incidentId, kind, severity, note, createdAt, reportedBy, route, departAt;
+}
+
+class StaffIdentity {
+  StaffIdentity.fromJson(Map<String, dynamic> j)
+      : staffId = _str(j['staff_id']),
+        email = _str(j['email']),
+        fullName = _str(j['full_name']),
+        operatorId = _str(j['operator_id']),
+        roles = _strs(j['roles']),
+        permissions = _strs(j['permissions']);
+  final String staffId, email, fullName, operatorId;
+  final List<String> roles, permissions;
+
+  bool can(String permission) => permissions.contains(permission);
+}

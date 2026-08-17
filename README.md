@@ -2,8 +2,8 @@
 
 Enterprise bus transportation and ticketing platform for the Bangladesh market.
 
-**Status: a proven booking core, seven applications, and the platform beneath
-them** — an event backbone, notifications in Bangla and English, passenger and
+**Status: a proven booking core, seven web applications, two Flutter mobile
+applications, and the platform beneath them** — an event backbone, notifications in Bangla and English, passenger and
 staff authentication, a search read model, promotions and referrals, three-way
 reconciliation, an operations control centre, a partner API with signed
 webhooks, a fraud engine, and analytics. Parts of the 44-week plan remain
@@ -119,10 +119,11 @@ Tear down including the database volume: `docker compose down -v`
 
 ---
 
-## The seven applications
+## The applications
 
-Next.js 16 + React 19 + TypeScript, one deployment, seven distinct workplaces.
-Every route below is built and exercised by one of the two browser suites.
+Seven workplaces on the web — Next.js 16 + React 19 + TypeScript, one deployment
+— and two native applications in Flutter. Every route below is built and
+exercised by one of the two browser suites; the mobile apps have their own.
 
 ### Passenger website
 
@@ -182,6 +183,34 @@ message the passenger was sent and which aggregator carried it.
 
 Assigned trips, trip state, position sharing, printable manifest, the boarding
 scanner, and incident reporting that actually reaches somebody.
+
+### The two mobile applications — `apps/mobile`
+
+Flutter, on the same platform and under the same rule: neither holds seat state,
+decides availability, nor reserves anything locally. Full detail in
+[apps/mobile/README.md](apps/mobile/README.md).
+
+**Jatra** (passenger) — search, a live seat map, a held-seat countdown,
+bKash/Nagad/card, and a ticket whose signed QR **opens with no signal**, which is
+the whole argument for an app over a web page. Plus live tracking labelled by
+source, self-serve cancellation showing the refund ladder with your own rung
+marked, saved journeys, fingerprint unlock, and departure reminders scheduled on
+the device.
+
+**Jatra Crew** (driver and helper) — the roster, the passenger list cached before
+departure, a camera boarding scanner that keeps working when the signal goes,
+trip state as one verb at a time, position sharing that turns a passenger's
+timetable guess into a moving bus, and incident reporting.
+
+Both are Bangla-first with English alongside, on the same rule the web product
+follows: Bangla words, Latin figures.
+
+```
+flutter analyze     clean, all three packages
+flutter test        26 hermetic tests
+--tags live          8 more, driving the running platform end to end
+flutter build apk    Jatra 53 MB · Jatra Crew 65 MB
+```
 
 ---
 
@@ -493,7 +522,11 @@ services/
   api/tripgen/            schedule -> trips -> inventory (idempotent)
   api/cmd/api/            server + sweeper + relay + indexer + detector + dispatcher
 
-apps/web/                 all seven applications (Next.js 16, React 19, TypeScript)
+apps/web/                 all seven web applications (Next.js 16, React 19, TypeScript)
+apps/mobile/              two Flutter applications + the package they share
+  jatra_core/             API client, models, catalogue, palette, on-device stores
+  passenger/              Jatra — tickets that open with no signal
+  crew/                   Jatra Crew — the roster, the door, the road
   app/                    passenger routes at the root; /counter /agent /operator
                           /admin /helpdesk /driver /staff for the six workplaces
   components/StaffShell   the staff chrome, nav and permission gate
@@ -601,10 +634,10 @@ one place to change it.
 Measured against the 44-week plan this is Phase 1 essentially complete, most of
 Phase 2, and the ecosystem and fraud slices of Phase 3.
 
-**Not started at all** — the Flutter mobile apps (passenger and driver), real
-Kafka / OpenSearch / ClickHouse clusters, white-label tenancy, every AI feature
-(support agent, voice booking, operator assistant), demand forecasting and
-dynamic pricing, multi-region and disaster recovery, and inventory sharding.
+**Not started at all** — real Kafka / OpenSearch / ClickHouse clusters,
+white-label tenancy, every AI feature (support agent, voice booking, operator
+assistant), demand forecasting and dynamic pricing, multi-region and disaster
+recovery, and inventory sharding.
 
 **Deliberately interim, and load-bearing if you scale this**
 
@@ -633,8 +666,16 @@ dynamic pricing, multi-region and disaster recovery, and inventory sharding.
   the six are in shadow mode for that reason.
 - **GPS is driver-app only.** Hardware trackers and third-party GPS providers
   both go through the same Location Gateway shape, but neither is integrated.
-- **No push notifications.** There is no mobile app, so no device token exists;
-  PUSH deliveries are skipped visibly in the log rather than silently.
+- **No server-sent push.** The passenger app schedules its own departure
+  reminders on the device, which needs no credentials and works for a guest who
+  never signed in. News only the platform can know — a trip cancelled at short
+  notice, a bus running late — needs FCM, a project and a set of credentials
+  this build does not hold, so PUSH deliveries are still skipped visibly in the
+  notification log rather than silently.
+- **The mobile release builds are signed with the debug key.** They install and
+  run; they are deliberately not upload-ready, and neither store has been
+  approached. iOS is scaffolded with its usage strings but has never been built,
+  which needs a Mac.
 - **The partner API has no rate limiter per minute.** Daily quotas are enforced;
   the per-minute rate is stored and not applied.
 

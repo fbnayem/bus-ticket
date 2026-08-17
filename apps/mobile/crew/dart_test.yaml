@@ -1,0 +1,12 @@
+# The live tests talk to a running platform. They are excluded from an ordinary
+# `flutter test` run so the suite passes on a machine with nothing in front of
+# it, and asked for explicitly when there is:
+#
+#   flutter test --tags live --dart-define=JATRA_API=http://localhost:8080/api/v1
+#
+# Excluded rather than deleted, on purpose: unit tests prove the app agrees with
+# itself, and only these prove it agrees with the server. They are what caught
+# the client swallowing an empty 400 as an empty success.
+tags:
+  live:
+    skip: "needs a running platform — run with --tags live"
