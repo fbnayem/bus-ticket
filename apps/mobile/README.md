@@ -76,8 +76,8 @@ default path here as it is on the website.
 
 ```bash
 flutter analyze                     # in each of the three packages
-flutter test                        # 26 tests; the live ones are skipped
-flutter test --tags live            # 8 more, against a running platform
+flutter test                        # 36 tests; the live ones are skipped
+flutter test --tags live --run-skipped   # 8 more, against a running platform
 flutter build apk --release
 ```
 

@@ -1,12 +1,21 @@
-# The live tests talk to a running platform. They are excluded from an ordinary
+# The live tests talk to a running platform. They are skipped by an ordinary
 # `flutter test` run so the suite passes on a machine with nothing in front of
-# it, and asked for explicitly when there is:
+# it, and asked for explicitly when there is one:
 #
-#   flutter test --tags live --dart-define=JATRA_API=http://localhost:8080/api/v1
+#   flutter test --tags live --run-skipped \
+#     --dart-define=JATRA_API=http://localhost:8080/api/v1
 #
-# Excluded rather than deleted, on purpose: unit tests prove the app agrees with
+# `--run-skipped` is not optional and this is the reason. A `skip:` here is
+# unconditional, so `--tags live` on its own selects these tests and then skips
+# every one of them — reporting "All tests skipped" in a way that reads a lot
+# like success. `exclude_tags` is no better: the runner gives it precedence over
+# `--tags`, so nothing can turn it back on from the command line. This pairing
+# is the only one where the default run is quiet AND the flag genuinely runs
+# them, which is why the command above carries a flag that looks redundant.
+#
+# Skipped rather than deleted, on purpose: unit tests prove the app agrees with
 # itself, and only these prove it agrees with the server. They are what caught
 # the client swallowing an empty 400 as an empty success.
 tags:
   live:
-    skip: "needs a running platform — run with --tags live"
+    skip: "needs a running platform — add --tags live --run-skipped"

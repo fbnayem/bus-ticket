@@ -208,7 +208,7 @@ follows: Bangla words, Latin figures.
 ```
 flutter analyze     clean, all three packages
 flutter test        26 hermetic tests
---tags live          8 more, driving the running platform end to end
+--tags live          8 more, driving the running platform end to end (add --run-skipped)
 flutter build apk    Jatra 53 MB · Jatra Crew 65 MB
 ```
 
