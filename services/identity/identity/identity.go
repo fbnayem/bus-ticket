@@ -272,6 +272,23 @@ func (s *Service) SetPassword(ctx context.Context, userID, password string) erro
 	return err
 }
 
+// HasPassword says whether this account can be signed into with a password.
+//
+// It exists so the app can offer "set a password" to somebody who has none and
+// "change password" to somebody who has one, rather than showing both and
+// making the passenger work out which applies to them. It is only ever asked
+// about the caller's own account — it must never become a way to find out
+// which numbers have passwords.
+func (s *Service) HasPassword(ctx context.Context, userID string) bool {
+	var ok bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM identity.credentials WHERE user_id = $1::uuid)`,
+		userID).Scan(&ok); err != nil {
+		return false
+	}
+	return ok
+}
+
 // LoginPassword accepts either a phone number or an email address.
 //
 // It spends the same PBKDF2 work whether or not the account exists, so response

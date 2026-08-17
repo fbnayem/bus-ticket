@@ -8,10 +8,17 @@
          POST_NOTIFICATIONS  the departure reminder, asked for only when a
                            passenger actually has a ticket to be reminded about
          USE_BIOMETRIC     opening the app, not authorising anything — the
-                           session token is what the server checks -->
+                           session token is what the server checks
+         RECORD_AUDIO      voice search and booking, asked for the first time
+                           somebody taps the microphone and never on launch.
+                           Recognition runs in the phone's own engine, so
+                           nothing spoken is sent anywhere by this app, and a
+                           refused permission costs only voice — every screen
+                           stays fully usable by tapping -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
 
     <!-- Reminders have to survive a restart, or the passenger who books on
          Friday for Sunday gets nothing. -->
@@ -75,6 +82,15 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Android 11+ hides other packages unless they are declared. Without
+             these the speech recogniser and the text-to-speech voice are simply
+             invisible to the app, and voice fails with no error worth reading. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
         </intent>
     </queries>
 </manifest>

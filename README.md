@@ -217,6 +217,17 @@ source, self-serve cancellation showing the refund ladder with your own rung
 marked, saved journeys, fingerprint unlock, and departure reminders scheduled on
 the device.
 
+The shell keeps its bottom bar on **every** screen — one Navigator per tab, so
+results, seats, passengers, payment and the ticket all sit inside their tab
+rather than on top of the app. A profile carries trip history from every device,
+editable details, saved travellers and session management. Sign in with a code
+or a password, either way.
+
+And you can **talk to it**: *"kal dhaka theke chittagong, duita seat"* searches,
+*"first one"* chooses, and a read-back of route, time, seats and fare asks
+before anything is held. The microphone lives in the shell, so it is reachable
+mid-flow — which is only possible because the shell is now always on screen.
+
 **Jatra Crew** (driver and helper) — the roster, the passenger list cached before
 departure, a camera boarding scanner that keeps working when the signal goes,
 trip state as one verb at a time, position sharing that turns a passenger's
@@ -227,11 +238,21 @@ follows: Bangla words, Latin figures.
 
 ```
 flutter analyze     clean, all three packages
-flutter test        53 hermetic tests
+flutter test        109 hermetic tests — 53 passenger, 26 crew, 30 voice grammar
 --tags live          8 more, driving the running platform end to end (add --run-skipped)
 flutter build apk    Jatra 53 MB · Jatra Crew 65 MB
-on a device         both installed and driven: search → ticket, roster → boarding scan
+on a device         both installed and driven: search → ticket, roster → boarding scan,
+                    and a whole booking started by voice
 ```
+
+**The voice tests do not need a microphone, and that is the design.** The
+grammar is a pure function over a transcript, so 30 Bangla/English/code-switched
+phrases are pinned to exact intents in CI; and `VoiceFlow.handle` — the method
+the microphone path calls once a transcript exists — is driven directly by 10
+more, which assert what voice does *and what it refuses to do*: nothing held
+without a yes, an unclear answer treated as no, a ceiling above which it hands
+over, and a stop against any non-sandbox provider. The audio capture itself is
+the only untested step, and no rig can drive it.
 
 Running them on a device is not ceremony. It found four faults nothing else did
 — a seat map that omitted the front row of every bus and the whole upper deck of
@@ -625,6 +646,32 @@ is what forced the interface to exist rather than an import.
 ---
 
 ## Design decisions worth knowing
+
+**Buying a ticket makes the device know you. It does not sign you in.** After a
+purchase the app greets the passenger by name, pre-fills their next checkout and
+keeps their tickets — all from `Store.traveller`, which grants nothing. Minting
+a real session from a purchase was the obvious shortcut and it opens a hole: a
+phone number typed at checkout is not proof of owning it, and
+`catalog.saved_passengers` holds NID numbers, so anyone could type a stranger's
+number, pay ৳805, and read that person's travel history and identity documents.
+Turning the device's knowledge into an account takes one tap and a code to that
+number — which arrives in the same breath as the ticket SMS.
+
+**Voice never collects a phone number, and never hears a PIN.** An 11-digit
+string is what speech recognition is worst at and a wrong one sends somebody
+else the ticket, so voice holds the seats and hands over to the form. Payment
+approval is read back aloud with the amount, needs an explicit spoken yes, is
+capped at ৳5,000, and completes only against the sandbox provider — a real
+bKash or Nagad PIN is entered inside their own app and is not delegable by
+design. The app says so on screen rather than appearing to stall.
+
+**The voice grammar is a grammar, not a model** (`jatra_core/lib/src/voice/`).
+Pure Dart, no network, no inference: it runs in CI with no microphone, costs
+nothing on a cheap handset, and when it mishears somebody the reason is a line
+of code rather than a probability. Matching is on word boundaries in both
+scripts — plain containment made `খুলনা` end in `না` ("no"), so a passenger
+asking for a bus to Khulna was refusing, and on that screen a refusal releases
+held seats.
 
 **One name, not one name per seat.** Only the person booking has to be named.
 The platform never required a name per seat — boarding is decided by the signed

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -590,6 +591,106 @@ func (s *Server) handleSavedPassengers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"passengers": out})
 }
 
+// The people a passenger travels with, kept so a companion's details are typed
+// once rather than at every checkout.
+//
+// The table has existed since migration 005 but nothing has ever written to it
+// — the two rows in it are seed data. Every statement below is scoped by
+// `user_id` in the WHERE clause, not merely by having authenticated: the id in
+// the URL is supplied by the caller, and a saved passenger row carries an NID
+// number, so an ownership check that lives anywhere other than the query itself
+// is one refactor away from being skipped.
+
+type savedPassengerIn struct {
+	FullName string `json:"full_name"`
+	Gender   string `json:"gender"`
+	Age      int    `json:"age"`
+	IDType   string `json:"id_type"`
+	IDNumber string `json:"id_number"`
+}
+
+func (s *Server) handleAddSavedPassenger(w http.ResponseWriter, r *http.Request) {
+	id := s.requirePassenger(w, r)
+	if id == nil {
+		return
+	}
+	var req savedPassengerIn
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "We could not read that request.")
+		return
+	}
+	if strings.TrimSpace(req.FullName) == "" {
+		fail(w, 400, "name_required", "A saved passenger needs a name.")
+		return
+	}
+	var newID string
+	if err := s.pool.QueryRow(r.Context(), `
+		INSERT INTO catalog.saved_passengers
+		       (user_id, full_name, gender, age, id_type, id_number)
+		VALUES ($1::uuid, $2, NULLIF($3,''), NULLIF($4,0), NULLIF($5,''), NULLIF($6,''))
+		RETURNING saved_id::text`,
+		id.UserID, strings.TrimSpace(req.FullName), req.Gender, req.Age,
+		req.IDType, req.IDNumber).Scan(&newID); err != nil {
+		fail(w, 500, "save_failed", "Could not save that passenger.")
+		return
+	}
+	writeJSON(w, 201, map[string]any{"id": newID})
+}
+
+func (s *Server) handleUpdateSavedPassenger(w http.ResponseWriter, r *http.Request) {
+	id := s.requirePassenger(w, r)
+	if id == nil {
+		return
+	}
+	var req savedPassengerIn
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "We could not read that request.")
+		return
+	}
+	if strings.TrimSpace(req.FullName) == "" {
+		fail(w, 400, "name_required", "A saved passenger needs a name.")
+		return
+	}
+	tag, err := s.pool.Exec(r.Context(), `
+		UPDATE catalog.saved_passengers
+		   SET full_name = $3, gender = NULLIF($4,''), age = NULLIF($5,0),
+		       id_type = NULLIF($6,''), id_number = NULLIF($7,'')
+		 WHERE saved_id = $1::uuid AND user_id = $2::uuid`,
+		r.PathValue("id"), id.UserID, strings.TrimSpace(req.FullName),
+		req.Gender, req.Age, req.IDType, req.IDNumber)
+	if err != nil {
+		fail(w, 500, "save_failed", "Could not save that passenger.")
+		return
+	}
+	// Zero rows means the row is not this passenger's — or does not exist. The
+	// same answer for both, so this cannot be used to probe for other people's
+	// saved passengers.
+	if tag.RowsAffected() == 0 {
+		fail(w, 404, "not_found", "That saved passenger is not on your list.")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDeleteSavedPassenger(w http.ResponseWriter, r *http.Request) {
+	id := s.requirePassenger(w, r)
+	if id == nil {
+		return
+	}
+	tag, err := s.pool.Exec(r.Context(),
+		`DELETE FROM catalog.saved_passengers WHERE saved_id = $1::uuid AND user_id = $2::uuid`,
+		r.PathValue("id"), id.UserID)
+	if err != nil {
+		fail(w, 500, "delete_failed", "Could not remove that passenger.")
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		fail(w, 404, "not_found", "That saved passenger is not on your list.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 	id := s.requirePassenger(w, r)
 	if id == nil {
@@ -604,5 +705,8 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 		"email":         id.Email,
 		"authenticated": true,
 		"lang":          lang,
+		// So the profile can offer "set a password" or "change password"
+		// rather than both, and leave the passenger to work out which is theirs.
+		"has_password": s.ident.HasPassword(r.Context(), id.UserID),
 	})
 }

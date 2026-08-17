@@ -168,6 +168,40 @@ class Store {
     await _p.setStringList(_kRoutes, all);
   }
 
+  /* ---------------------------------------------------- the traveller */
+
+  static const _kMeName = 'jatra.me.name';
+  static const _kMePhone = 'jatra.me.phone';
+
+  /// Who this device belongs to, as far as this device is concerned.
+  ///
+  /// Deliberately NOT a session, and it grants nothing. Buying a ticket means
+  /// somebody typed a name and a number, and typing a number is not proof of
+  /// owning it — so this is used only to greet them, to pre-fill the next
+  /// checkout, and to offer to turn it into a real account.
+  ///
+  /// The distinction matters because a real session reaches
+  /// `/account/bookings` and `/account/passengers`, and the latter holds NID
+  /// numbers. If this were minted into a session at purchase, anyone could type
+  /// a stranger's number, pay for a ticket, and read that stranger's travel
+  /// history and identity documents.
+  ({String name, String phone})? get traveller {
+    final phone = _p.getString(_kMePhone) ?? '';
+    if (phone.isEmpty) return null;
+    return (name: _p.getString(_kMeName) ?? '', phone: phone);
+  }
+
+  Future<void> rememberTraveller(String name, String phone) async {
+    if (phone.trim().isEmpty) return;
+    await _p.setString(_kMePhone, phone.trim());
+    if (name.trim().isNotEmpty) await _p.setString(_kMeName, name.trim());
+  }
+
+  Future<void> forgetTraveller() async {
+    await _p.remove(_kMeName);
+    await _p.remove(_kMePhone);
+  }
+
   /* ------------------------------------------------------- recent places */
 
   static const _kPlaces = 'jatra.places.recent';

@@ -13,6 +13,8 @@ export 'src/format.dart';
 export 'src/i18n.dart';
 export 'src/models.dart';
 export 'src/place_picker.dart';
+export 'src/voice/intent.dart';
+export 'src/voice/voice_session.dart';
 export 'src/store.dart';
 export 'src/theme.dart';
 export 'src/widgets.dart';

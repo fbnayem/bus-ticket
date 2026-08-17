@@ -126,6 +126,9 @@ func (s *Server) routes() {
 	// account — now behind real passenger authentication
 	m.HandleFunc("GET /api/v1/account/bookings", s.handleAccountBookings)
 	m.HandleFunc("GET /api/v1/account/passengers", s.handleSavedPassengers)
+	m.HandleFunc("POST /api/v1/account/passengers", s.handleAddSavedPassenger)
+	m.HandleFunc("PATCH /api/v1/account/passengers/{id}", s.handleUpdateSavedPassenger)
+	m.HandleFunc("DELETE /api/v1/account/passengers/{id}", s.handleDeleteSavedPassenger)
 	m.HandleFunc("GET /api/v1/account/profile", s.handleProfile)
 
 	s.authRoutes(m)

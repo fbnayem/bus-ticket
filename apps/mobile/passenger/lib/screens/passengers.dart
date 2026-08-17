@@ -23,8 +23,13 @@ class PassengersScreen extends StatefulWidget {
 }
 
 class _PassengersScreenState extends State<PassengersScreen> {
-  late final List<TextEditingController> _names =
-      widget.hold.seats.map((_) => TextEditingController()).toList();
+  // The lead name comes back pre-filled once this device has bought a ticket
+  // before. Somebody booking their own travel a second time should not retype
+  // their own name; the companions' fields stay empty, because they change.
+  late final List<TextEditingController> _names = [
+    for (var i = 0; i < widget.hold.seats.length; i++)
+      TextEditingController(text: i == 0 ? (AppScope.read(context).displayName ?? '') : ''),
+  ];
   late final TextEditingController _phone =
       TextEditingController(text: AppScope.read(context).phone ?? '');
   final _genders = <String, String>{};
@@ -92,6 +97,10 @@ class _PassengersScreenState extends State<PassengersScreen> {
         phone: phone,
         idempotencyKey: newIdempotencyKey('book'),
       );
+      // The purchase is what teaches the device who is holding it. From here
+      // the app greets them by name and starts the next checkout filled in.
+      // It is not a session and grants nothing — see Store.traveller.
+      await app.rememberTraveller(_names.first.text.trim(), phone);
       if (!mounted) return;
       setState(() => _busy = false);
       await Navigator.of(context).pushReplacement(MaterialPageRoute(

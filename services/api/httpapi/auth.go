@@ -221,7 +221,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"signed_in": false})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"signed_in": true, "identity": id})
+	writeJSON(w, 200, map[string]any{
+		"signed_in":    true,
+		"identity":     id,
+		"has_password": s.ident.HasPassword(r.Context(), id.UserID),
+	})
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {

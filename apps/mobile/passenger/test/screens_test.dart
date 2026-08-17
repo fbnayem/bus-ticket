@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:jatra_core/jatra_core.dart';
 import 'package:jatra_passenger/app_state.dart';
+import 'package:jatra_passenger/main.dart';
+import 'package:jatra_passenger/screens/account.dart';
 import 'package:jatra_passenger/reminders.dart';
 import 'package:jatra_passenger/screens/home.dart';
 import 'package:jatra_passenger/screens/offers.dart';
@@ -138,6 +140,46 @@ MockClient _platform({Map<String, dynamic>? seatMap, bool placesFail = false}) =
         return _json({'locations': _places(req.url.queryParameters['q'] ?? '')});
       }
       if (p.endsWith('/seatmap')) return _json(seatMap ?? const {'seats': []});
+      if (p.endsWith('/account/profile')) {
+        return _json(const {
+          'display_name': 'Rahim Uddin',
+          'phone': '01711000000',
+          'email': 'rahim@example.test',
+          'authenticated': true,
+          'lang': 'bn',
+          'has_password': false,
+        });
+      }
+      if (p.endsWith('/account/bookings')) {
+        return _json({
+          'upcoming': [
+            {
+              'pnr': 'UPC001', 'status': 'TICKETED', 'total_poisha': 230000,
+              'depart_at': '2099-09-01T22:00:00+06:00', 'brand': 'Green Line',
+              'origin': 'Dhaka', 'destination': 'Chattogram',
+              'seat_count': 2, 'upcoming': true,
+            }
+          ],
+          'past': [
+            {
+              'pnr': 'OLD777', 'status': 'COMPLETED', 'total_poisha': 115000,
+              'depart_at': '2020-01-05T08:00:00+06:00', 'brand': 'Hanif',
+              'origin': 'Dhaka', 'destination': 'Sylhet',
+              'seat_count': 1, 'upcoming': false,
+            }
+          ],
+          'phone': '01711000000',
+        });
+      }
+      if (p.endsWith('/account/passengers')) {
+        return _json(const {
+          'passengers': [
+            {'id': 'sp1', 'full_name': 'Fatema Begum', 'gender': 'F', 'age': 29,
+             'id_type': 'NID', 'id_number': '1995987654321'},
+          ]
+        });
+      }
+      if (p.endsWith('/auth/sessions')) return _json(const {'sessions': []});
       if (p.endsWith('/offers')) {
         return _json({
           'offers': [
@@ -166,10 +208,18 @@ Future<AppState> _state({
   Map<String, dynamic>? seatMap,
   bool placesFail = false,
   List<String> recentPlaces = const [],
+  String? knownName,
+  String? knownPhone,
+  bool signedIn = false,
 }) async {
   SharedPreferences.setMockInitialValues({
     'jatra.tickets': tickets,
     if (recentPlaces.isNotEmpty) 'jatra.places.recent': recentPlaces,
+    if (knownName != null) 'jatra.me.name': knownName,
+    if (knownPhone != null) 'jatra.me.phone': knownPhone,
+    if (signedIn) 'jatra.token': 'test-token',
+    if (signedIn) 'jatra.phone': knownPhone ?? '01711000000',
+    if (signedIn) 'jatra.name': knownName ?? 'Rahim Uddin',
   });
   final store = await Store.open();
   return AppState(
@@ -199,6 +249,17 @@ Hold _hold(List<String> seats) => Hold.fromJson({
       },
     });
 
+/// The whole app shell, for the tests that are about navigation rather than
+/// about one screen.
+Widget _wrapShell(AppState state) => LangScope(
+      lang: Lang.bn,
+      setLang: (_) {},
+      child: AppScope(
+        state: state,
+        child: MaterialApp(theme: jatraTheme(), home: const Shell()),
+      ),
+    );
+
 Widget _wrap(AppState state, Widget child) => LangScope(
       lang: Lang.bn,
       setLang: (_) {},
@@ -207,6 +268,15 @@ Widget _wrap(AppState state, Widget child) => LangScope(
         child: MaterialApp(theme: jatraTheme(), home: child),
       ),
     );
+
+/// These screens are ListViews, so on a phone-sized test surface only the first
+/// card or two are ever built — the rest does not exist to be found or typed
+/// into. A tall window builds the whole thing.
+void tallWindow(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1000, 4000);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -223,16 +293,145 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  /* ----------------------------------------------------- who is travelling */
+  /* --------------------------------------------------------- the shell */
 
-  /// The screen is a ListView, so on a phone-sized test surface only the first
-  /// card or two are ever built and the rest of the form does not exist to be
-  /// typed into. A tall window builds the whole thing.
-  void tallWindow(WidgetTester tester) {
-    tester.view.physicalSize = const Size(1000, 4000);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.reset);
-  }
+  testWidgets('the bottom menu survives going somewhere', (tester) async {
+    final state = await _state();
+    await tester.pumpWidget(_wrapShell(state));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+
+    // Go two screens deep, the way a passenger does.
+    await tester.tap(find.text(const L(Lang.bn)('find.go')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationBar), findsOneWidget,
+        reason: 'the app must not lose its navigation exactly when somebody '
+            'is deepest inside it — that was the whole bug');
+  });
+
+  testWidgets('back pops the tab before it leaves the app', (tester) async {
+    final state = await _state();
+    await tester.pumpWidget(_wrapShell(state));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(const L(Lang.bn)('find.go')));
+    await tester.pumpAndSettle();
+    expect(find.text(const L(Lang.bn)('find.go')), findsNothing);
+
+    // The system back button.
+    final popped =
+        await tester.binding.handlePopRoute().then((_) => true).catchError((_) => false);
+    await tester.pumpAndSettle();
+    expect(popped, isTrue);
+    expect(find.text(const L(Lang.bn)('find.go')), findsOneWidget,
+        reason: 'back belongs to the tab first; it should not close the app '
+            'from inside a booking flow');
+  });
+
+  testWidgets('the microphone is reachable from every screen', (tester) async {
+    final state = await _state();
+    await tester.pumpWidget(_wrapShell(state));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.mic), findsOneWidget);
+    await tester.tap(find.text(const L(Lang.bn)('find.go')));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.mic), findsOneWidget,
+        reason: 'voice lives in the shell so it is there mid-flow, which is '
+            'when somebody wants to change their mind');
+  });
+
+  /* ------------------------------------------ known on this device */
+
+  testWidgets('buying a ticket makes the device know the traveller',
+      (tester) async {
+    final state = await _state();
+    expect(state.known, isFalse);
+
+    await state.rememberTraveller('Rahim Uddin', '01711000000');
+
+    expect(state.known, isTrue);
+    expect(state.displayName, 'Rahim Uddin');
+    expect(state.phone, '01711000000');
+    expect(state.signedIn, isFalse,
+        reason: 'knowing who bought a ticket is NOT a session — a typed phone '
+            'number is not proof of owning it, and a session would open that '
+            "person's saved passengers and NID numbers to anyone");
+  });
+
+  testWidgets('a known traveller is greeted and pre-filled, not signed in',
+      (tester) async {
+    final state = await _state(knownName: 'Rahim Uddin', knownPhone: '01711000000');
+    await tester.pumpWidget(_wrap(state, const HomeScreen()));
+    await tester.pump();
+
+    expect(find.text(const L(Lang.bn)('find.hello', {'name': 'Rahim'})), findsOneWidget);
+  });
+
+  testWidgets('the account tab offers to verify, and does not claim to have',
+      (tester) async {
+    final state = await _state(knownName: 'Rahim Uddin', knownPhone: '01711000000');
+    await tester.pumpWidget(_wrap(state, const AccountScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text(const L(Lang.bn)('ac.travellingAs')), findsOneWidget);
+    expect(find.text(const L(Lang.bn)('ac.keepEverywhere')), findsOneWidget);
+    expect(find.text(const L(Lang.bn)('ac.onThisPhone')), findsOneWidget,
+        reason: 'the screen has to say this is only on this phone, or it is '
+            'claiming an account the passenger does not have');
+  });
+
+  testWidgets('signing out keeps the device knowing you; forgetting does not',
+      (tester) async {
+    final state = await _state(knownName: 'Rahim Uddin', knownPhone: '01711000000');
+    await state.signOut();
+    expect(state.known, isTrue,
+        reason: 'signing out should not empty the next checkout form');
+    await state.forgetMe();
+    expect(state.known, isFalse);
+  });
+
+  /* --------------------------------------------------------- the profile */
+
+  testWidgets('a stranger is offered both ways in', (tester) async {
+    final state = await _state();
+    await tester.pumpWidget(_wrap(state, const AccountScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text(const L(Lang.bn)('ac.withCode')), findsOneWidget);
+    expect(find.text(const L(Lang.bn)('ac.withPassword')), findsOneWidget);
+  });
+
+  testWidgets('the profile shows past trips, not just upcoming ones',
+      (tester) async {
+    final state = await _state(signedIn: true, knownName: 'Rahim Uddin');
+    await tester.pumpWidget(_wrap(state, const AccountScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text(const L(Lang.bn)('ac.upcoming')), findsOneWidget);
+    expect(find.text(const L(Lang.bn)('ac.past')), findsOneWidget,
+        reason: 'the old tickets are the half that was missing');
+    expect(find.text('OLD777'), findsOneWidget);
+    expect(find.text('UPC001'), findsOneWidget);
+  });
+
+  testWidgets('the profile lists saved travellers and lets details be edited',
+      (tester) async {
+    tallWindow(tester);
+    final state = await _state(signedIn: true, knownName: 'Rahim Uddin');
+    await tester.pumpWidget(_wrap(state, const AccountScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Fatema Begum'), findsOneWidget);
+    expect(find.text(const L(Lang.bn)('ac.addPerson')), findsOneWidget);
+    expect(find.text(const L(Lang.bn)('ac.edit')), findsOneWidget);
+    // has_password is false in the fixture, so it must offer to set one.
+    expect(find.text(const L(Lang.bn)('ac.setPassword')), findsWidgets);
+  });
+
+  /* ----------------------------------------------------- who is travelling */
 
   testWidgets('only the person booking has to be named', (tester) async {
     tallWindow(tester);

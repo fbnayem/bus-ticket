@@ -95,6 +95,11 @@ Future<Place?> showPlacePicker({
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    // The root navigator, not the tab's. Without this the sheet is boxed into
+    // the tab's area and stops short of the bottom bar — a full-height picker
+    // that is not full height, with the list cut off exactly where the
+    // keyboard already took half the screen.
+    useRootNavigator: true,
     backgroundColor: J.plate,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),

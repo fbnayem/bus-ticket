@@ -30,8 +30,23 @@ class AppState extends ChangeNotifier {
   bool _signedIn = false;
   bool get signedIn => _signedIn;
 
-  String? get phone => store.phone;
-  String? get displayName => store.displayName;
+  String? get phone => store.phone ?? store.traveller?.phone;
+  String? get displayName => store.displayName ?? _nonEmpty(store.traveller?.name);
+
+  static String? _nonEmpty(String? s) => (s == null || s.isEmpty) ? null : s;
+
+  /// True once somebody has bought a ticket on this device, whether or not they
+  /// ever signed in. It is what lets the app greet them and pre-fill a
+  /// checkout; it is emphatically NOT [signedIn], and nothing that reaches the
+  /// platform for account data may key off it.
+  bool get known => store.traveller != null;
+
+  /// Called once a booking exists. The name is the lead passenger's and the
+  /// number is the one the ticket was sent to.
+  Future<void> rememberTraveller(String name, String phone) async {
+    await store.rememberTraveller(name, phone);
+    notifyListeners();
+  }
 
   /// Tickets this phone can show with no signal at all.
   ///
@@ -84,11 +99,23 @@ class AppState extends ChangeNotifier {
     await pullAccountTickets();
   }
 
+  /// Signs out of the account but leaves the device knowing who bought the
+  /// tickets in its pocket. Signing out should stop the app reaching the
+  /// platform on somebody's behalf; it should not make the app forget the
+  /// person holding it, or their next checkout starts from an empty form.
   Future<void> signOut() async {
     await api.logout();
     api.c.bearer = null;
     await store.clearSession();
     _signedIn = false;
+    notifyListeners();
+  }
+
+  /// The stronger one: forget the traveller too. Offered separately, for a
+  /// shared or handed-on phone.
+  Future<void> forgetMe() async {
+    await signOut();
+    await store.forgetTraveller();
     notifyListeners();
   }
 

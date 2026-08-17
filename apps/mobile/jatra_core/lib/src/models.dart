@@ -196,6 +196,58 @@ class PassengerDetail {
       };
 }
 
+/// Somebody this passenger travels with often enough to have typed once.
+///
+/// The NID number is held because a bus operator can ask for it at the door,
+/// not because the platform needs it. It is only ever read back to the person
+/// who saved it — every query behind these is scoped by user_id.
+class SavedPassenger {
+  SavedPassenger({
+    this.id = '',
+    required this.fullName,
+    this.gender = '',
+    this.age = 0,
+    this.idType = '',
+    this.idNumber = '',
+  });
+
+  factory SavedPassenger.fromJson(Map<String, dynamic> j) => SavedPassenger(
+        id: _str(j['id']),
+        fullName: _str(j['full_name']),
+        gender: _str(j['gender']),
+        age: _int(j['age']),
+        idType: _str(j['id_type']),
+        idNumber: _str(j['id_number']),
+      );
+
+  final String id, fullName, gender, idType, idNumber;
+  final int age;
+
+  Map<String, dynamic> toJson() => {
+        'full_name': fullName,
+        'gender': gender,
+        'age': age,
+        'id_type': idType,
+        'id_number': idNumber,
+      };
+
+  SavedPassenger copyWith({
+    String? fullName,
+    String? gender,
+    int? age,
+    String? idType,
+    String? idNumber,
+  }) =>
+      SavedPassenger(
+        id: id,
+        fullName: fullName ?? this.fullName,
+        gender: gender ?? this.gender,
+        age: age ?? this.age,
+        idType: idType ?? this.idType,
+        idNumber: idNumber ?? this.idNumber,
+      );
+}
+
 class TicketStub {
   TicketStub.fromJson(Map<String, dynamic> j)
       : ticketId = _str(j['ticket_id']),

@@ -186,6 +186,100 @@ check('account history now visible', acct.status === 200 &&
 check('the guest booking was claimed by the account', verified.body.bookings_claimed >= 0,
   `${verified.body.bookings_claimed} claimed`);
 
+console.log('\n=== 14b. PEOPLE YOU TRAVEL WITH ===');
+// The table has existed since migration 005 but nothing ever wrote to it. Every
+// row carries an NID number, so the ownership check is the point of this block
+// — it lives in the WHERE clause of each statement rather than in a guard that
+// a later refactor could step around.
+const setPw = await api('/auth/password/set', {
+  method: 'POST',
+  body: JSON.stringify({ password: 'ChaloJatra#26' }),
+});
+check('a password can be set on the account', setPw.status === 200);
+
+const me = await api('/auth/me');
+check('the platform now reports the account has a password', me.body.has_password === true);
+
+const added = await api('/account/passengers', {
+  method: 'POST',
+  body: JSON.stringify({
+    full_name: 'Companion Karim', gender: 'M', age: 31,
+    id_type: 'NID', id_number: '1994000111222',
+  }),
+});
+check('a saved passenger can be added', added.status === 201 && !!added.body.id, added.body.id);
+const savedId = added.body.id;
+
+const listed = await api('/account/passengers');
+check('and comes back on the list',
+  listed.body.passengers?.some((p) => p.id === savedId));
+
+const edited = await api(`/account/passengers/${savedId}`, {
+  method: 'PATCH',
+  body: JSON.stringify({ full_name: 'Karim Uddin', gender: 'M', age: 32 }),
+});
+check('a saved passenger can be edited', edited.status === 200);
+
+const nameless = await api('/account/passengers', {
+  method: 'POST',
+  body: JSON.stringify({ full_name: '   ' }),
+});
+check('a nameless saved passenger is refused',
+  nameless.status === 400 && nameless.body.error === 'name_required',
+  `${nameless.status} ${nameless.body.error}`);
+
+// Somebody else's row. A random id must answer the same way a real id belonging
+// to another account does, or this becomes a way to probe for them.
+const strangers = await api('/account/passengers/11111111-1111-1111-1111-111111111111', {
+  method: 'PATCH',
+  body: JSON.stringify({ full_name: 'Not Mine' }),
+});
+check("another account's saved passenger cannot be edited",
+  strangers.status === 404, `${strangers.status}`);
+
+const strangerDelete = await api('/account/passengers/11111111-1111-1111-1111-111111111111', {
+  method: 'DELETE',
+});
+check("another account's saved passenger cannot be deleted",
+  strangerDelete.status === 404, `${strangerDelete.status}`);
+
+const removed = await api(`/account/passengers/${savedId}`, { method: 'DELETE' });
+check('your own can be removed', removed.status === 204, `${removed.status}`);
+
+const anonPeople = await (async () => {
+  const keep = bearer; bearer = null;
+  const r = await api('/account/passengers');
+  bearer = keep;
+  return r;
+})();
+check('signed out, saved passengers are not readable at all',
+  anonPeople.status === 401, `${anonPeople.status}`);
+
+console.log('\n=== 14c. SIGNING IN WITH THAT PASSWORD ===');
+const pwLogin = await (async () => {
+  const keep = bearer; bearer = null;
+  const r = await api('/auth/password/login', {
+    method: 'POST',
+    body: JSON.stringify({ login: '01700000000', password: 'ChaloJatra#26', device: 'smoke-pw' }),
+  });
+  bearer = keep;
+  return r;
+})();
+check('the password signs the passenger in', pwLogin.status === 200 && !!pwLogin.body.access_token);
+
+const pwWrong = await (async () => {
+  const keep = bearer; bearer = null;
+  const r = await api('/auth/password/login', {
+    method: 'POST',
+    body: JSON.stringify({ login: '01700000000', password: 'wrong-one', device: 'smoke-pw' }),
+  });
+  bearer = keep;
+  return r;
+})();
+check('a wrong password is refused with one generic answer',
+  pwWrong.status === 401 && pwWrong.body.error === 'bad_credentials',
+  `${pwWrong.status} ${pwWrong.body.error}`);
+
 console.log('\n=== 15. REFRESH ROTATION AND REUSE DETECTION ===');
 const refreshed = await api('/auth/refresh', {
   method: 'POST',

@@ -147,7 +147,50 @@ class PassengerApi {
     }
   }
 
+  /// Sign in with a password rather than a code.
+  ///
+  /// `login` is a phone number or an email; the platform answers the same way
+  /// for "no such account" and "wrong password", so nothing here can be used to
+  /// find out which numbers have accounts.
+  Future<Map<String, dynamic>> passwordLogin(String login, String password, String device) =>
+      c.post('/auth/password/login',
+          body: {'login': login, 'password': password, 'device': device});
+
+  Future<void> setPassword(String password) async =>
+      c.post('/auth/password/set', body: {'password': password});
+
+  Future<Map<String, dynamic>> me() => c.get('/auth/me');
+
+  Future<Map<String, dynamic>> sessions() => c.get('/auth/sessions');
+
+  Future<void> revokeAllSessions() async => c.post('/auth/sessions/revoke-all');
+
+  Future<void> updateProfile({String? name, String? email, String? lang}) async =>
+      c.patch('/auth/profile', body: {
+        if (name != null) 'display_name': name,
+        if (email != null) 'email': email,
+        if (lang != null) 'lang': lang,
+      });
+
   Future<Map<String, dynamic>> accountBookings() => c.get('/account/bookings');
 
   Future<Map<String, dynamic>> profile() => c.get('/account/profile');
+
+  /* ------------------------------------------------- people you travel with */
+
+  Future<List<SavedPassenger>> savedPassengers() async {
+    final r = await c.get('/account/passengers');
+    return (r['passengers'] as List? ?? const [])
+        .map((e) => SavedPassenger.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<void> addSavedPassenger(SavedPassenger p) async =>
+      c.post('/account/passengers', body: p.toJson());
+
+  Future<void> updateSavedPassenger(SavedPassenger p) async =>
+      c.patch('/account/passengers/${p.id}', body: p.toJson());
+
+  Future<void> deleteSavedPassenger(String id) async =>
+      c.delete('/account/passengers/$id');
 }

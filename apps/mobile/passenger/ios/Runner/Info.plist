@@ -7,6 +7,10 @@
 	     phone out of somebody's travel history. -->
 	<key>NSFaceIDUsageDescription</key>
 	<string>Open Jatra with Face ID so your tickets stay yours.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>So you can say where you are going instead of typing it.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>To understand where you are going when you speak. Recognition happens on this phone.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

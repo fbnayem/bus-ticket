@@ -71,9 +71,17 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor: J.field,
             flexibleSpace: FlexibleSpaceBar(
               titlePadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-              title: Text(l('app.passenger'),
-                  style: const TextStyle(
-                      color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
+              // Once this device has bought a ticket it knows whose it is, and
+              // says so by name. Nothing is unlocked by this — see
+              // Store.traveller — it is only the difference between an app that
+              // recognises you and one that does not.
+              title: Text(
+                app.known && app.displayName != null
+                    ? l('find.hello', {'name': app.displayName!.split(' ').first})
+                    : l('app.passenger'),
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700),
+              ),
             ),
             actions: const [
               Padding(padding: EdgeInsets.only(right: 12), child: Center(child: LanguageToggle(onLight: true))),

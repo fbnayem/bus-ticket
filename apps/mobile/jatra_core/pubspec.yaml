@@ -15,6 +15,12 @@ dependencies:
     sdk: flutter
   http: ^1.2.0
   shared_preferences: ^2.3.0
+  # Voice. Recognition is the device's own engine, so nothing spoken leaves the
+  # phone for a third party, and the Bangla model is whichever one the phone
+  # already has. The grammar that interprets a transcript is ours and is pure
+  # Dart — see src/voice/intent.dart — so it is testable without either plugin.
+  speech_to_text: ^7.0.0
+  flutter_tts: ^4.2.0
 
 dev_dependencies:
   flutter_test:
