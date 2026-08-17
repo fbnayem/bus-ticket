@@ -628,11 +628,13 @@ apps/mobile/              two Flutter applications + the package they share
                           lang-audit.mjs (every Bangla surface, working and failing)
                           place-picker.mjs (typos, Bangla input, what it submits)
 
-scripts/smoke.mjs           38-check passenger API flow
-scripts/channels-smoke.mjs  77-check staff channel API flow
-scripts/platform-smoke.mjs  69-check platform services flow
+scripts/smoke.mjs           53-check passenger API flow
+scripts/channels-smoke.mjs  80-check staff channel API flow
+scripts/platform-smoke.mjs  71-check platform services flow
 deploy/docker-compose.yml   Postgres + Redis + the proof runner
 docs/                       the 44-week plan, and the original spec verbatim
+                            passenger-app-update.md — the place picker, the seat
+                            colours, the persistent shell, identity, profile, voice
 ```
 
 `commerce` depends on an `InventoryClient` **interface**, not on inventory's
