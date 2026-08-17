@@ -32,7 +32,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
   Future<void> _load() async {
     setState(() => _error = '');
     try {
-      final trips = await AppScope.of(context).api.search(widget.from, widget.to, widget.date);
+      final trips = await AppScope.read(context).api.search(widget.from, widget.to, widget.date);
       if (mounted) setState(() => _trips = trips);
     } on ApiError catch (e) {
       if (mounted) setState(() => _error = e.message);

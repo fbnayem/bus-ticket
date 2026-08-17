@@ -54,7 +54,7 @@ class _CrewAppState extends State<CrewApp> {
           // has a colour of its own, and this one has to stay legible on a
           // cheap screen held at arm's length in daylight.
           theme: jatraTheme(seed: J.crew),
-          home: const _Root(),
+          home: _Root(boarding: _boarding),
           builder: (context, child) => MediaQuery.withClampedTextScaling(
             // Honour the reader's own text size, up to a point that still lets
             // a seat number and a verdict share a screen.
@@ -69,17 +69,20 @@ class _CrewAppState extends State<CrewApp> {
 }
 
 class _Root extends StatelessWidget {
-  const _Root();
+  const _Root({required this.boarding});
+
+  final Boarding boarding;
 
   @override
   Widget build(BuildContext context) {
     final session = SessionScope.of(context);
+    // A blank field-coloured screen rather than a spinner: this state lasts as
+    // long as one request to /staff/me, and a spinner that flashes for 200ms
+    // reads as a stutter rather than as progress.
     if (!session.ready) {
       return const Scaffold(backgroundColor: J.crew, body: SizedBox.shrink());
     }
     if (!session.signedIn) return const SignInScreen();
-
-    final app = context.findAncestorStateOfType<_CrewAppState>()!;
-    return TripsScreen(boarding: app._boarding);
+    return TripsScreen(boarding: boarding);
   }
 }

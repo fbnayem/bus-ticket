@@ -42,7 +42,7 @@ class _RefundScreenState extends State<RefundScreen> {
 
   Future<void> _load() async {
     try {
-      final q = await AppScope.of(context).api.cancellationQuote(widget.booking.pnr);
+      final q = await AppScope.read(context).api.cancellationQuote(widget.booking.pnr);
       if (mounted) setState(() => _quote = q);
     } on ApiError catch (e) {
       if (mounted) setState(() => _error = e.message);

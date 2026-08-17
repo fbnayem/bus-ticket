@@ -41,7 +41,7 @@ class _SeatsScreenState extends State<SeatsScreen> {
   Future<void> _load() async {
     setState(() => _error = '');
     try {
-      final m = await AppScope.of(context)
+      final m = await AppScope.read(context)
           .api
           .seatMap(widget.trip.tripId, widget.trip.boardSeq, widget.trip.dropSeq);
       if (mounted) setState(() => _map = m);

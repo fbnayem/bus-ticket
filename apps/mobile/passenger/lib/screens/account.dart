@@ -30,7 +30,7 @@ class _AccountScreenState extends State<AccountScreen> {
   @override
   void initState() {
     super.initState();
-    _phone.text = AppScope.of(context).phone ?? '';
+    _phone.text = AppScope.read(context).phone ?? '';
   }
 
   @override

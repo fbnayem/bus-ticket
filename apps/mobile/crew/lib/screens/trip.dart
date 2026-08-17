@@ -50,7 +50,7 @@ class _TripScreenState extends State<TripScreen> {
 
   Future<void> _load() async {
     try {
-      final m = await SessionScope.of(context).api.manifest(widget.trip.tripId);
+      final m = await SessionScope.read(context).api.manifest(widget.trip.tripId);
       await widget.boarding.store.cacheManifest(widget.trip.tripId, m.raw);
       if (!mounted) return;
       setState(() {

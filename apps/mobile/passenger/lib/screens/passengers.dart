@@ -26,7 +26,7 @@ class _PassengersScreenState extends State<PassengersScreen> {
   late final List<TextEditingController> _names =
       widget.hold.seats.map((_) => TextEditingController()).toList();
   late final TextEditingController _phone =
-      TextEditingController(text: AppScope.of(context).phone ?? '');
+      TextEditingController(text: AppScope.read(context).phone ?? '');
   final _genders = <String, String>{};
 
   Timer? _tick;

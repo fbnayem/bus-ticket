@@ -136,17 +136,26 @@ class Store {
 
   static const _kRoutes = 'jatra.routes';
 
+  /// Separator for a saved journey.
+  ///
+  /// A unit separator rather than a comma or a pipe, because place names come
+  /// from the platform's gazetteer and one of them will eventually contain
+  /// whatever printable character seemed safe. It is spelled out here rather
+  /// than written inline as a literal control character, which is invisible in
+  /// a diff and reads like a bug to whoever finds it next.
+  static const _sep = '\u0001';
+
   List<({String from, String to})> savedRoutes() {
     final raw = _p.getStringList(_kRoutes) ?? const [];
     return raw
-        .map((s) => s.split(''))
+        .map((s) => s.split(_sep))
         .where((p) => p.length == 2)
         .map((p) => (from: p[0], to: p[1]))
         .toList();
   }
 
   Future<void> saveRoute(String from, String to) async {
-    final key = '$from$to';
+    final key = '$from$_sep$to';
     final all = _p.getStringList(_kRoutes) ?? <String>[];
     all.remove(key);
     all.insert(0, key);
@@ -155,7 +164,7 @@ class Store {
 
   Future<void> forgetRoute(String from, String to) async {
     final all = _p.getStringList(_kRoutes) ?? <String>[];
-    all.remove('$from$to');
+    all.remove('$from$_sep$to');
     await _p.setStringList(_kRoutes, all);
   }
 

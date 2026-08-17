@@ -50,7 +50,7 @@ class _IncidentScreenState extends State<IncidentScreen> {
 
   Future<void> _load() async {
     try {
-      final rows = await SessionScope.of(context).api.incidents();
+      final rows = await SessionScope.read(context).api.incidents();
       if (mounted) setState(() => _reported = rows);
     } on ApiError {
       if (mounted) setState(() => _reported = const []);

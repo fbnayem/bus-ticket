@@ -34,7 +34,7 @@ class _TicketScreenState extends State<TicketScreen> {
   @override
   void initState() {
     super.initState();
-    _booking = AppScope.of(context).store.cachedTicket(widget.pnr);
+    _booking = AppScope.read(context).store.cachedTicket(widget.pnr);
     _fromDevice = _booking != null;
     _refresh();
     _brighten();
@@ -59,7 +59,7 @@ class _TicketScreenState extends State<TicketScreen> {
   }
 
   Future<void> _refresh() async {
-    final app = AppScope.of(context);
+    final app = AppScope.read(context);
     try {
       final fresh = await app.api.booking(widget.pnr);
       await app.keep(fresh);

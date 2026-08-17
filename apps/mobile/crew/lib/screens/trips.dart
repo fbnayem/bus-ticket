@@ -34,7 +34,7 @@ class _TripsScreenState extends State<TripsScreen> {
   Future<void> _load() async {
     setState(() => _error = '');
     try {
-      final trips = await SessionScope.of(context).api.trips();
+      final trips = await SessionScope.read(context).api.trips();
       if (!mounted) return;
       setState(() {
         _trips = trips;
@@ -44,7 +44,7 @@ class _TripsScreenState extends State<TripsScreen> {
       // phone before it is needed at a door with no signal.
       for (final t in trips) {
         try {
-          final m = await SessionScope.of(context).api.manifest(t.tripId);
+          final m = await SessionScope.read(context).api.manifest(t.tripId);
           await widget.boarding.store.cacheManifest(t.tripId, m.raw);
         } on ApiError {
           // Best effort. A trip whose list could not be fetched simply has no

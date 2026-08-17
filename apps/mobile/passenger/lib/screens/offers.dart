@@ -31,7 +31,7 @@ class _OffersScreenState extends State<OffersScreen> {
 
   Future<void> _load() async {
     try {
-      final o = await AppScope.of(context).api.offers();
+      final o = await AppScope.read(context).api.offers();
       if (mounted) setState(() => _offers = o);
     } on ApiError catch (e) {
       if (mounted) setState(() => _error = e.message);

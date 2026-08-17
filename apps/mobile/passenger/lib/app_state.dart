@@ -130,8 +130,24 @@ class AppScope extends InheritedNotifier<AppState> {
   const AppScope({super.key, required AppState state, required super.child})
       : super(notifier: state);
 
+  /// Reads the state **and subscribes** to it. For `build`.
   static AppState of(BuildContext context) {
     final s = context.dependOnInheritedWidgetOfExactType<AppScope>();
+    assert(s != null, 'No AppScope above this widget');
+    return s!.notifier!;
+  }
+
+  /// Reads the state **without** subscribing. For `initState` and for
+  /// callbacks that only want to call a method.
+  ///
+  /// The distinction is not stylistic. `dependOnInheritedWidgetOfExactType`
+  /// asserts when it is called before `initState` has finished, so every screen
+  /// that kicked off its first load from `initState` — which is most of them —
+  /// would have thrown on the first frame in a debug build. Release builds
+  /// disable that assert, so it would have "worked" right up until somebody ran
+  /// it from an IDE.
+  static AppState read(BuildContext context) {
+    final s = context.getInheritedWidgetOfExactType<AppScope>();
     assert(s != null, 'No AppScope above this widget');
     return s!.notifier!;
   }

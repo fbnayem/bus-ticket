@@ -75,8 +75,21 @@ class SessionScope extends InheritedNotifier<Session> {
   const SessionScope({super.key, required Session session, required super.child})
       : super(notifier: session);
 
+  /// Reads the session **and subscribes** to it. For `build`.
   static Session of(BuildContext context) {
     final s = context.dependOnInheritedWidgetOfExactType<SessionScope>();
+    assert(s != null, 'No SessionScope above this widget');
+    return s!.notifier!;
+  }
+
+  /// Reads the session **without** subscribing. For `initState` and for
+  /// callbacks that only want to call a method.
+  ///
+  /// `dependOnInheritedWidgetOfExactType` asserts when called before
+  /// `initState` has finished, so a screen that starts its first load there —
+  /// which is most of them — throws on the first frame in a debug build.
+  static Session read(BuildContext context) {
+    final s = context.getInheritedWidgetOfExactType<SessionScope>();
     assert(s != null, 'No SessionScope above this widget');
     return s!.notifier!;
   }
