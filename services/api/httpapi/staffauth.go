@@ -12,6 +12,10 @@ func (s *Server) staffRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /api/v1/staff/login", s.handleStaffLogin)
 	m.HandleFunc("POST /api/v1/staff/logout", s.guard("", s.handleStaffLogout))
 	m.HandleFunc("GET /api/v1/staff/me", s.guard("", s.handleStaffMe))
+	m.HandleFunc("PATCH /api/v1/staff/profile", s.guard("", s.handleStaffProfile))
+	m.HandleFunc("POST /api/v1/staff/password/change", s.guard("", s.handleStaffPassword))
+	m.HandleFunc("GET /api/v1/staff/sessions", s.guard("", s.handleStaffSessions))
+	m.HandleFunc("POST /api/v1/staff/sessions/revoke-all", s.guard("", s.handleStaffRevokeAll))
 	m.HandleFunc("POST /api/v1/staff/mfa/setup", s.guard("", s.handleMFASetup))
 	m.HandleFunc("POST /api/v1/staff/mfa/enable", s.guard("", s.handleMFAEnable))
 	m.HandleFunc("POST /api/v1/staff/mfa/disable", s.guard("", s.handleMFADisable))
@@ -175,4 +179,80 @@ func clientIP(r *http.Request) string {
 		host = host[:i]
 	}
 	return strings.Trim(host, "[]")
+}
+
+// ---------------------------------------------------------------- profile ----
+
+// What a member of staff can change about their own account, from the app they
+// are already holding. Passengers got all of this a release ago; staff had
+// none of it and had to telephone the office.
+
+type staffProfileRequest struct {
+	FullName string `json:"full_name"`
+	Phone    string `json:"phone"`
+}
+
+func (s *Server) handleStaffProfile(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	var req staffProfileRequest
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "That request could not be read.")
+		return
+	}
+	if err := s.stf.UpdateProfile(r.Context(), id.StaffID, req.FullName, req.Phone); err != nil {
+		s.log.Error("staff profile", "err", err)
+		fail(w, 500, "update_failed", "Your details could not be saved.")
+		return
+	}
+	s.stf.Audit(r.Context(), id, "staff.profile.update", "staff:"+id.StaffID, nil)
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+type staffPasswordRequest struct {
+	Current string `json:"current_password"`
+	New     string `json:"new_password"`
+}
+
+func (s *Server) handleStaffPassword(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	var req staffPasswordRequest
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "That request could not be read.")
+		return
+	}
+	// The current session survives; every other one does not. See
+	// staff.ChangePassword for why that is the right way round.
+	err := s.stf.ChangePassword(r.Context(), id.StaffID, req.Current, req.New, bearer(r))
+	if errors.Is(err, staff.ErrWeakPassword) {
+		fail(w, 400, "weak_password", "Use at least 8 characters.")
+		return
+	}
+	if errors.Is(err, staff.ErrBadCredentials) {
+		fail(w, 403, "wrong_password", "That is not your current password.")
+		return
+	}
+	if err != nil {
+		s.log.Error("staff password", "err", err)
+		fail(w, 500, "update_failed", "Your password could not be changed.")
+		return
+	}
+	s.stf.Audit(r.Context(), id, "staff.password.change", "staff:"+id.StaffID, nil)
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (s *Server) handleStaffSessions(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	list, err := s.stf.Sessions(r.Context(), id.StaffID, bearer(r))
+	if err != nil {
+		fail(w, 500, "query_failed", "Could not load your sessions.")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"sessions": list})
+}
+
+func (s *Server) handleStaffRevokeAll(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	n, err := s.stf.RevokeOtherSessions(r.Context(), id.StaffID, bearer(r))
+	if err != nil {
+		fail(w, 500, "revoke_failed", "Those sessions could not be ended.")
+		return
+	}
+	s.stf.Audit(r.Context(), id, "staff.sessions.revoke_all", "staff:"+id.StaffID, nil)
+	writeJSON(w, 200, map[string]any{"revoked": n})
 }

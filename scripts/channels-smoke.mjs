@@ -422,9 +422,21 @@ check('search finds it by phone number too', byPhone.results.length >= 1);
 
 // Notifications are asynchronous by design, so let the backbone catch up
 // rather than race it. Draining is what the ticker does anyway, on demand.
-await call('/admin/events/drain', { method: 'POST', token: admin.token, expect: 200 });
-const timeline = (await call(`/helpdesk/timeline/${sale.pnr}`, {
-  token: helpdesk.token, expect: 200 })).body;
+//
+// One drain is not enough, and assuming it was is what made this suite fail
+// roughly one run in five with "timeline shows what the passenger was told —
+// none". A drain moves the outbox into the event log; the notify consumer then
+// has to run and write its own row, and that second hop had not always
+// happened by the time the timeline was read. Draining in a short bounded loop
+// waits for the effect rather than for a fixed guess at how long it takes.
+let timeline = null;
+for (let attempt = 0; attempt < 10; attempt++) {
+  await call('/admin/events/drain', { method: 'POST', token: admin.token, expect: 200 });
+  timeline = (await call(`/helpdesk/timeline/${sale.pnr}`, {
+    token: helpdesk.token, expect: 200 })).body;
+  if (timeline.timeline.some((e) => e.kind === 'notification')) break;
+  await new Promise((r) => setTimeout(r, 200));
+}
 const kinds = new Set(timeline.timeline.map((e) => e.kind));
 check('timeline covers inventory, booking, payment and ticket',
   ['inventory', 'booking', 'payment', 'ticket'].every((k) => kinds.has(k)),
@@ -619,6 +631,236 @@ check('four channels, one seat, exactly one winner', winners === 1,
   `web=${statuses[0]} counter=${statuses[1]} agent=${statuses[2]} quota=${statuses[3]}`);
 check('the losers all got a clean rejection, not an error',
   statuses.filter((s) => s === 409).length === 3, statuses.join(' '));
+
+
+// ------------------------------------------------------- 9. the on-board channel --
+//
+// A conductor selling a seat on a moving bus. The interesting parts are not
+// that a ticket comes out — that is the same CreateBooking every other channel
+// uses — but who pays for a discount, and whether the cash can still be
+// reconciled at the end of a run.
+
+console.log('\n=== 9. ON-BOARD SELLING, CASH AND COMMISSION ===');
+
+// Its own Green Line departure with room on it. The earlier sections sell into
+// `trip` until it is nearly full, and a suite that fails because a previous
+// section did its job is a suite nobody trusts. Section 8 already proves the
+// one-inventory contention; this section is about money.
+let cTrip = null, cSeats = [];
+for (let ahead = 4; ahead <= 14 && !cTrip; ahead++) {
+  const d = new Date(Date.now() + ahead * 864e5).toISOString().slice(0, 10);
+  const found = (await call(`/search?from=Dhaka&to=Chattogram&date=${d}`, { expect: 200 })).body;
+  const candidate = found.results.find((t) => t.brand === 'Green Line');
+  if (!candidate) continue;
+  const map = (await call(
+    `/trips/${candidate.trip_id}/seatmap?board=${candidate.board_seq}&drop=${candidate.drop_seq}`,
+    { expect: 200 })).body;
+  const open = map.seats.filter((s) => s.available).map((s) => s.seat_no);
+  if (open.length >= 6) { cTrip = candidate; cSeats = open; }
+}
+check('a departure with room to sell on board was found', cTrip !== null,
+  cTrip ? `${cSeats.length} free` : 'none in the next fortnight');
+
+const cDriver = await login('driver@greenline.test');
+check('the crew app has a home to land on', cDriver.home === '/driver', cDriver.home);
+check('a driver may sell and may set a price',
+  cDriver.identity.permissions.includes('crew.sell') &&
+  cDriver.identity.permissions.includes('crew.discount'));
+
+const cHelper = await login('helper@greenline.test');
+check('a helper may sell but may NOT change the fare',
+  cHelper.identity.permissions.includes('crew.sell') &&
+  !cHelper.identity.permissions.includes('crew.discount'),
+  'selling and pricing are separate grants on purpose');
+
+// This suite has to be re-runnable, and a duty left open by a previous run
+// would make every check below it lie. Close anything still hanging around
+// before asserting that there is nothing open.
+for (const who of [cDriver, cHelper]) {
+  const existing = await call('/crew/duties', { token: who.token });
+  if (existing.body?.open?.duty_id) {
+    await call('/crew/duties/close', {
+      method: 'POST', token: who.token,
+      body: { duty_id: existing.body.open.duty_id,
+              counted_cash_poisha: existing.body.open.expected_cash_poisha,
+              note: 'smoke: clearing a bag left open by an earlier run' },
+    });
+  }
+}
+
+// A duty is the bag. Cash may not be taken without one.
+const cNoDuty = await call('/crew/sales', {
+  method: 'POST', token: cDriver.token,
+  body: { trip_id: cTrip.trip_id, seats: ['ZZ9'], board_seq: cTrip.board_seq,
+          drop_seq: cTrip.drop_seq, phone: '+8801799000001' },
+});
+check('selling with no open duty is refused', cNoDuty.status === 409,
+  `${cNoDuty.status} ${cNoDuty.body?.error ?? ''}`);
+
+const cOpen = await call('/crew/duties', {
+  method: 'POST', token: cDriver.token, body: { opening_float_poisha: 100000 }, expect: 201,
+});
+const cDutyID = cOpen.body.duty_id;
+
+const cAgain = await call('/crew/duties', {
+  method: 'POST', token: cDriver.token, body: { opening_float_poisha: 500 },
+});
+check('a second open returns the first bag rather than making another',
+  cAgain.body.already_open === true && cAgain.body.duty_id === cDutyID,
+  'two open bags make every taka in a pocket unattributable');
+
+const cCtx = await call('/crew/sell/context', { token: cDriver.token, expect: 200 });
+check('the cap and the reasons come from the server, not the app',
+  cCtx.body.max_pct_bp > 0 && cCtx.body.reasons.length > 0,
+  `${cCtx.body.max_pct_bp}bp, ${cCtx.body.reasons.length} reasons`);
+
+
+const onboard = (seat, discount, reason) => call('/crew/sales', {
+  method: 'POST', token: cDriver.token,
+  body: {
+    duty_id: cDutyID, trip_id: cTrip.trip_id, seats: [seat],
+    board_seq: cTrip.board_seq, drop_seq: cTrip.drop_seq,
+    phone: '+8801799000001',
+    passengers: [{ seat_no: seat, full_name: 'Roadside Passenger' }],
+    discount_poisha: discount, discount_reason: reason,
+  },
+});
+
+// --- full fare ---
+const cFull = await onboard(cSeats[0], 0, '');
+check('an on-board sale issues a ticket', cFull.status === 201, `${cFull.status}`);
+const cEarn = cFull.body.commission_poisha;
+check('a full-fare sale earns commission and forfeits none',
+  cEarn > 0 && cFull.body.forfeit_poisha === 0, taka(cEarn));
+
+// --- a discount smaller than the commission: the crew pays, the operator does not ---
+const cSmallOff = Math.floor(cEarn / 2);
+const cSmall = await onboard(cSeats[1], cSmallOff, 'NEGOTIATED');
+check('a small discount comes out of the crew commission first',
+  cSmall.status === 201 &&
+  cSmall.body.forfeit_poisha === cSmallOff &&
+  cSmall.body.commission_poisha === cEarn - cSmallOff,
+  `gave ${taka(cSmallOff)}, kept ${taka(cSmall.body.commission_poisha ?? 0)}`);
+
+// --- a discount larger than the commission but inside the cap: floors at zero ---
+const cBigOff = cEarn + 1000;
+const cBig = await onboard(cSeats[2], cBigOff, 'NEGOTIATED');
+check('a discount larger than the commission floors it at zero, never negative',
+  cBig.status === 201 &&
+  cBig.body.commission_poisha === 0 &&
+  cBig.body.forfeit_poisha === cEarn,
+  `gave ${taka(cBigOff)}, forfeited ${taka(cBig.body.forfeit_poisha ?? 0)} — ` +
+  'a conductor is never asked to pay for a sale out of their own pocket');
+
+// --- over the cap: refused, and refused with the number ---
+const cOver = await onboard(cSeats[3], 10_000_00, 'NEGOTIATED');
+check('a discount over the cap is REFUSED, not quietly clamped',
+  cOver.status === 400 && cOver.body.error === 'discount_too_large',
+  `${cOver.status} ${cOver.body?.error ?? ''}`);
+check('and the refusal says what the ceiling actually is',
+  Number(cOver.body?.ref) > 0, `ceiling ${taka(Number(cOver.body?.ref ?? 0))}`);
+
+// --- a discount with no reason ---
+const cNoWhy = await onboard(cSeats[3], 1000, '');
+check('an unexplained discount is refused',
+  cNoWhy.status === 400 && cNoWhy.body.error === 'discount_reason_required',
+  'an unexplained discount is indistinguishable from pocketing the difference');
+
+// --- another company bus is not theirs to sell ---
+//
+// This one was found by driving the app: a Green Line driver sold a seat on a
+// Hanif coach. The discount ceiling is looked up from the crew member employer
+// and the commission rule from the trip owner, so the two silently disagreed
+// and the conductor was shown a commission nobody would ever pay them.
+const foreignTrip = (await call(
+  `/search?from=Dhaka&to=Chattogram&date=${new Date(Date.now() + 5 * 864e5).toISOString().slice(0, 10)}`,
+  { expect: 200 })).body.results.find((t) => t.brand !== 'Green Line');
+if (foreignTrip) {
+  const foreign = await call('/crew/sales', {
+    method: 'POST', token: cDriver.token,
+    body: {
+      duty_id: cDutyID, trip_id: foreignTrip.trip_id, seats: ['A1'],
+      board_seq: foreignTrip.board_seq, drop_seq: foreignTrip.drop_seq,
+      phone: '+8801799000003',
+    },
+  });
+  check('a crew member cannot sell on another company bus',
+    foreign.status === 403 && foreign.body.error === 'not_your_bus',
+    `${foreignTrip.brand}: ${foreign.status} ${foreign.body?.error ?? ''}`);
+} else {
+  check('a crew member cannot sell on another company bus', false,
+    'no other operator departure was available to test against');
+}
+
+// --- a helper cannot discount, whatever they send ---
+const cHelperDuty = await call('/crew/duties', {
+  method: 'POST', token: cHelper.token, body: { opening_float_poisha: 0 },
+});
+const cHelperTry = await call('/crew/sales', {
+  method: 'POST', token: cHelper.token,
+  body: {
+    duty_id: cHelperDuty.body.duty_id, trip_id: cTrip.trip_id, seats: [cSeats[4]],
+    board_seq: cTrip.board_seq, drop_seq: cTrip.drop_seq,
+    phone: '+8801799000002', discount_poisha: 500, discount_reason: 'NEGOTIATED',
+  },
+});
+check('a helper is refused by the server, not merely by a hidden button',
+  cHelperTry.status === 403 && cHelperTry.body.error === 'discount_not_permitted',
+  `${cHelperTry.status} ${cHelperTry.body?.error ?? ''}`);
+
+// --- one crew member cannot touch another bag ---
+const cStranger = await call('/crew/duties/close', {
+  method: 'POST', token: cHelper.token,
+  body: { duty_id: cDutyID, counted_cash_poisha: 0 },
+});
+check('another persons duty is not found, rather than forbidden',
+  cStranger.status === 404,
+  'a stranger duty id must not be distinguishable from one that does not exist');
+
+// --- the report, and the sum that matters ---
+const cRep = await call('/crew/report', { token: cDriver.token, expect: 200 });
+check('today and this week are both reported',
+  cRep.body.today.sales_count >= 3 && cRep.body.week.sales_count >= 3,
+  `today ${cRep.body.today.sales_count}, week ${cRep.body.week.sales_count}`);
+
+const cBag = cRep.body.duty;
+check('hand-over is exactly cash held minus commission earned',
+  cBag.expected_cash_poisha - cBag.commission_poisha === cBag.remit_poisha,
+  `${taka(cBag.expected_cash_poisha)} − ${taka(cBag.commission_poisha)} = ${taka(cBag.remit_poisha)}`);
+check('cash held is the float plus everything collected',
+  cBag.expected_cash_poisha === cBag.opening_float_poisha + cBag.collected_poisha,
+  taka(cBag.expected_cash_poisha));
+
+// --- per trip, the other half of the answer ---
+await call('/crew/duties/trips/close', {
+  method: 'POST', token: cDriver.token,
+  body: { duty_id: cDutyID, trip_id: cTrip.trip_id }, expect: 200,
+});
+const cSealed = await call('/crew/report', { token: cDriver.token, expect: 200 });
+const cRun = cSealed.body.trips.find((t) => t.trip_id === cTrip.trip_id);
+check('a bus run is sealed with its own numbers',
+  Boolean(cRun && cRun.closed_at && cRun.sales_count >= 3),
+  cRun ? `${cRun.sales_count} sales, ${taka(cRun.gross_poisha)}` : 'no run recorded');
+
+// --- closing the bag 50 taka short, on purpose ---
+const cCounted = cBag.expected_cash_poisha - 5000;
+const cClose = await call('/crew/duties/close', {
+  method: 'POST', token: cDriver.token,
+  body: { duty_id: cDutyID, counted_cash_poisha: cCounted, note: 'smoke: deliberately short' },
+  expect: 200,
+});
+check('a short bag is recorded as a variance, not quietly balanced',
+  cClose.body.status === 'VARIANCE' && cClose.body.variance_poisha === -5000,
+  `${cClose.body.status} ${taka(cClose.body.variance_poisha)}`);
+check('the expected figure is the one the report predicted',
+  cClose.body.expected_cash_poisha === cBag.expected_cash_poisha,
+  taka(cClose.body.expected_cash_poisha));
+
+// --- and the books still balance ---
+const cTB = (await call('/admin/trial-balance', { token: finance.token, expect: 200 })).body;
+check('the ledger balances after on-board cash, discounts and a variance',
+  cTB.balanced === true,
+  `DR ${taka(cTB.total_debit_poisha)} = CR ${taka(cTB.total_credit_poisha)}`);
 
 console.log('\n' + '='.repeat(62));
 console.log(failures === 0 ? 'ALL CHANNEL CHECKS PASSED' : `${failures} CHECK(S) FAILED`);

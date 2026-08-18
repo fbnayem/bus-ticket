@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import 'api/passenger_api.dart';
+import 'api/discovery_api.dart';
 import 'i18n.dart';
 import 'models.dart';
 import 'store.dart';
@@ -46,7 +46,7 @@ class PlaceField extends StatelessWidget {
   /// the field falls back to the canonical name rather than showing nothing.
   final String valueBn;
   final ValueChanged<Place> onChanged;
-  final PassengerApi api;
+  final DiscoveryApi api;
   final Store store;
 
   @override
@@ -87,7 +87,7 @@ class PlaceField extends StatelessWidget {
 /// Opens the search sheet. Returns the chosen place, or null if dismissed.
 Future<Place?> showPlacePicker({
   required BuildContext context,
-  required PassengerApi api,
+  required DiscoveryApi api,
   required Store store,
   required String title,
 }) {
@@ -110,7 +110,7 @@ Future<Place?> showPlacePicker({
 
 class _PlaceSheet extends StatefulWidget {
   const _PlaceSheet({required this.api, required this.store, required this.title});
-  final PassengerApi api;
+  final DiscoveryApi api;
   final Store store;
   final String title;
 

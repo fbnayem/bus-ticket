@@ -1,5 +1,6 @@
 import '../models.dart';
 import 'client.dart';
+import 'discovery_api.dart';
 
 /// Everything the passenger app asks of the platform.
 ///
@@ -8,31 +9,10 @@ import 'client.dart';
 /// client-side hold. `createHold` posts to the same inventory service the
 /// website, the counter, the agent portal and the partner API all post to, and
 /// the answer it returns is the only truth about that seat.
-class PassengerApi {
-  PassengerApi(this.c);
-  final ApiClient c;
-
-  Future<List<Place>> places([String q = '', int limit = 0]) async {
-    final r = await c.get('/locations?q=${Uri.encodeQueryComponent(q)}'
-        '${limit > 0 ? '&limit=$limit' : ''}');
-    return (r['locations'] as List? ?? const [])
-        .map((e) => Place.fromJson(e as Map<String, dynamic>))
-        .toList(growable: false);
-  }
-
-  Future<List<TripSummary>> search(String from, String to, String isoDate) async {
-    final r = await c.get('/search?from=${Uri.encodeQueryComponent(from)}'
-        '&to=${Uri.encodeQueryComponent(to)}&date=$isoDate');
-    return (r['results'] as List? ?? const [])
-        .map((e) => TripSummary.fromJson(e as Map<String, dynamic>))
-        .toList(growable: false);
-  }
-
-  Future<TripDetail> trip(String id, {int board = 0, int drop = 0}) async =>
-      TripDetail.fromJson(await c.get('/trips/$id?board=$board&drop=$drop'));
-
-  Future<SeatMap> seatMap(String id, int board, int drop) async =>
-      SeatMap.fromJson(await c.get('/trips/$id/seatmap?board=$board&drop=$drop'));
+/// Discovery (places, search, trips, seat maps) is inherited: those endpoints
+/// are public and identical for every channel, and the crew app needs them too.
+class PassengerApi extends DiscoveryApi {
+  PassengerApi(super.c);
 
   /// Ask the central inventory to hold seats.
   ///

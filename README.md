@@ -228,21 +228,27 @@ And you can **talk to it**: *"kal dhaka theke chittagong, duita seat"* searches,
 before anything is held. The microphone lives in the shell, so it is reachable
 mid-flow — which is only possible because the shell is now always on screen.
 
-**Jatra Crew** (driver and helper) — the roster, the passenger list cached before
-departure, a camera boarding scanner that keeps working when the signal goes,
-trip state as one verb at a time, position sharing that turns a passenger's
-timetable guess into a moving bus, and incident reporting.
+**Jatra Crew** (driver and helper) — four tabs behind a bar that stays on screen:
+the roster and the passenger list cached before departure, a camera boarding
+scanner that keeps working when the signal goes, position sharing that turns a
+passenger's timetable guess into a moving bus, incident reporting — and, since
+the on-board release, **selling**. A conductor searches the same gazetteer the
+website uses, picks seats out of the same inventory service, may charge less
+than the published fare within a bound their operator sets, and closes the day
+by counting a cash bag against what the platform expected. The account tab is
+theirs: details, password, and every phone their account is signed in on.
 
 Both are Bangla-first with English alongside, on the same rule the web product
 follows: Bangla words, Latin figures.
 
 ```
 flutter analyze     clean, all three packages
-flutter test        109 hermetic tests — 53 passenger, 26 crew, 30 voice grammar
+flutter test        132 hermetic tests — 53 passenger, 49 crew, 30 voice grammar
 --tags live          8 more, driving the running platform end to end (add --run-skipped)
 flutter build apk    Jatra 53 MB · Jatra Crew 65 MB
 on a device         both installed and driven: search → ticket, roster → boarding scan,
-                    and a whole booking started by voice
+                    a whole booking started by voice, and a conductor opening a
+                    cash bag, selling at a negotiated fare and counting up short
 ```
 
 **The voice tests do not need a microphone, and that is the design.** The
@@ -629,10 +635,11 @@ apps/mobile/              two Flutter applications + the package they share
                           place-picker.mjs (typos, Bangla input, what it submits)
 
 scripts/smoke.mjs           53-check passenger API flow
-scripts/channels-smoke.mjs  80-check staff channel API flow
+scripts/channels-smoke.mjs  101-check staff channel API flow
 scripts/platform-smoke.mjs  71-check platform services flow
 deploy/docker-compose.yml   Postgres + Redis + the proof runner
 docs/                       the 44-week plan, and the original spec verbatim
+                            crew-onboard-sales.md — the conductor as a sales channel
                             passenger-app-update.md — the place picker, the seat
                             colours, the persistent shell, identity, profile, voice
 ```

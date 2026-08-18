@@ -26,6 +26,24 @@ class TripScreen extends StatefulWidget {
 
 class _TripScreenState extends State<TripScreen> {
   Manifest? _manifest;
+  final _find = TextEditingController();
+
+  /// Seat, name, PNR or number — whichever the passenger can produce.
+  ///
+  /// Seat matching is exact rather than contains: typing 1 should not return
+  /// A1, B1, C11 and D21 when somebody is standing over seat 1 asking whose it
+  /// is. Everything else is a substring, because a half-remembered name is the
+  /// normal case.
+  List<ManifestPassenger> _matching(Manifest m) {
+    final q = _find.text.trim().toLowerCase();
+    if (q.isEmpty) return m.passengers;
+    return m.passengers.where((p) {
+      if (p.seatNo.toLowerCase() == q) return true;
+      return p.passenger.toLowerCase().contains(q) ||
+          p.pnr.toLowerCase().contains(q) ||
+          p.phone.contains(q);
+    }).toList(growable: false);
+  }
   String _status = '';
   String _error = '';
   bool _stale = false;
@@ -45,6 +63,7 @@ class _TripScreenState extends State<TripScreen> {
   @override
   void dispose() {
     _positions?.cancel();
+    _find.dispose();
     super.dispose();
   }
 
@@ -272,17 +291,41 @@ class _TripScreenState extends State<TripScreen> {
               const Waiting()
             else if (m.passengers.isEmpty)
               Nothing(title: l('tk.none'))
-            else
-              Card(
-                child: Column(
-                  children: [
-                    for (var i = 0; i < m.passengers.length; i++) ...[
-                      if (i > 0) const Divider(height: 1),
-                      _PassengerRow(p: m.passengers[i]),
-                    ],
-                  ],
+            else ...[
+              // Finding one passenger on a full coach. It filters the list
+              // already in memory rather than asking the server, which is the
+              // point: the moment somebody needs this is at the door of a bus
+              // in a place with no signal.
+              TextField(
+                controller: _find,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  hintText: l('cr.findHint'),
+                  prefixIcon: const Icon(Icons.search),
+                  isDense: true,
+                  suffixIcon: _find.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => setState(_find.clear),
+                        ),
                 ),
               ),
+              const SizedBox(height: 8),
+              if (_matching(m).isEmpty)
+                Nothing(title: l('cr.noMatch'))
+              else
+                Card(
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < _matching(m).length; i++) ...[
+                        if (i > 0) const Divider(height: 1),
+                        _PassengerRow(p: _matching(m)[i]),
+                      ],
+                    ],
+                  ),
+                ),
+            ],
           ],
         ),
       ),

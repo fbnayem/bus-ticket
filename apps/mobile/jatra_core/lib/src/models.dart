@@ -503,3 +503,249 @@ class StaffIdentity {
 
   bool can(String permission) => permissions.contains(permission);
 }
+
+// ============================================================ the on-board sale
+
+/// What a conductor is holding, and how much of it is theirs.
+///
+/// Three numbers rather than one, deliberately. "Hand over 4,385" on its own is
+/// a figure somebody has to take on trust; cash held, minus commission earned,
+/// equals what the owner gets is a sum they can check against the notes in
+/// their hand at the side of a road.
+class DutySummary {
+  DutySummary.fromJson(Map<String, dynamic> j)
+      : dutyId = _str(j['duty_id']),
+        floatPoisha = _int(j['opening_float_poisha']),
+        collectedPoisha = _int(j['collected_poisha']),
+        expectedPoisha = _int(j['expected_cash_poisha']),
+        commissionPoisha = _int(j['commission_poisha']),
+        remitPoisha = _int(j['remit_poisha']),
+        discountPoisha = _int(j['discount_poisha']),
+        salesCount = _int(j['sales_count']);
+  final String dutyId;
+  final int floatPoisha,
+      collectedPoisha,
+      expectedPoisha,
+      commissionPoisha,
+      remitPoisha,
+      discountPoisha,
+      salesCount;
+}
+
+/// A cash bag, open or closed.
+class CrewDuty {
+  CrewDuty.fromJson(Map<String, dynamic> j)
+      : dutyId = _str(j['duty_id']),
+        status = _str(j['status']),
+        floatPoisha = _int(j['opening_float_poisha']),
+        countedPoisha = _int(j['counted_cash_poisha']),
+        expectedPoisha = _int(j['expected_cash_poisha']),
+        variancePoisha = _int(j['variance_poisha']),
+        commissionPoisha = _int(j['commission_poisha']),
+        salesCount = _int(j['sales_count']),
+        openedAt = _str(j['opened_at']),
+        closedAt = _str(j['closed_at']);
+  final String dutyId, status, openedAt, closedAt;
+  final int floatPoisha,
+      countedPoisha,
+      expectedPoisha,
+      variancePoisha,
+      commissionPoisha,
+      salesCount;
+
+  bool get open => status == 'OPEN';
+  DateTime? get opened => DateTime.tryParse(openedAt)?.toLocal();
+}
+
+/// Why a fare was reduced. The list comes from the server because an operator
+/// can change it, and a hard-coded list inside an app is a policy nobody can
+/// edit without a release.
+class DiscountReason {
+  DiscountReason.fromJson(Map<String, dynamic> j)
+      : code = _str(j['code']),
+        label = _str(j['label']),
+        labelBn = _str(j['label_bn']),
+        maxPctBp = _int(j['max_pct_bp']);
+  final String code, label, labelBn;
+  final int maxPctBp;
+
+  String labelFor(Lang lang) => lang == Lang.bn && labelBn.isNotEmpty ? labelBn : label;
+}
+
+/// What this crew member may do on this bus, decided by the server.
+///
+/// The app uses it to hide controls. It is not what stops anybody: every field
+/// here is checked again on the server when a sale is actually attempted.
+class SellContext {
+  SellContext.fromJson(Map<String, dynamic> j)
+      : crewRole = _str(j['crew_role']),
+        operatorBrand = _str(j['operator_brand']),
+        maySell = _bool(j['may_sell']),
+        mayDiscount = _bool(j['may_discount']),
+        maxPctBp = _int(j['max_pct_bp']),
+        maxAmountPoisha = _int(j['max_amount_poisha']),
+        serviceFeePoisha = _int(j['service_fee_poisha']),
+        commissionBp = _int(j['commission_bp']),
+        commissionFlatPoisha = _int(j['commission_flat_poisha']),
+        dutyId = _str(j['duty_id']),
+        duty = j['duty'] == null
+            ? null
+            : DutySummary.fromJson(j['duty'] as Map<String, dynamic>),
+        reasons = (j['reasons'] as List? ?? const [])
+            .map((e) => DiscountReason.fromJson(e as Map<String, dynamic>))
+            .toList(growable: false);
+  final String crewRole, dutyId, operatorBrand;
+  final bool maySell, mayDiscount;
+  final int maxPctBp, maxAmountPoisha, serviceFeePoisha;
+  final int commissionBp, commissionFlatPoisha;
+  final DutySummary? duty;
+  final List<DiscountReason> reasons;
+
+  bool get onDuty => dutyId.isNotEmpty;
+
+  /// What this sale earns before any discount, under the rule the server says
+  /// will actually settle it.
+  ///
+  /// Resolved server-side rather than assumed here: a preview computed from a
+  /// hardcoded rate agrees with the receipt right up until an operator
+  /// configures anything but the default, and then disagrees silently.
+  int commissionOn(int fullPoisha) {
+    if (commissionFlatPoisha > 0) return commissionFlatPoisha;
+    return (fullPoisha - serviceFeePoisha) * commissionBp ~/ 10000;
+  }
+
+  /// What a discount of [discountPoisha] leaves them, and what it took.
+  /// The floor at zero is the server's rule, mirrored so the screen can show it.
+  (int gross, int forfeit, int net) commissionAfter(int fullPoisha, int discountPoisha) {
+    final gross = commissionOn(fullPoisha);
+    final forfeit = discountPoisha > gross ? gross : discountPoisha;
+    return (gross, forfeit, gross - forfeit);
+  }
+
+  /// The most that may come off this fare, by the same three-way minimum the
+  /// server applies. Computed here so the ceiling can be shown BEFORE the sale:
+  /// finding out a discount was refused after telling a passenger a price is
+  /// the one outcome this screen exists to prevent.
+  int capFor(int fullPoisha, {DiscountReason? reason}) {
+    if (!mayDiscount) return 0;
+    var cap = fullPoisha * maxPctBp ~/ 10000;
+    if (maxAmountPoisha > 0 && maxAmountPoisha < cap) cap = maxAmountPoisha;
+    if (reason != null && reason.maxPctBp > 0) {
+      final rc = fullPoisha * reason.maxPctBp ~/ 10000;
+      if (rc < cap) cap = rc;
+    }
+    return cap < 0 ? 0 : cap;
+  }
+}
+
+/// One ticket this crew member sold.
+class CrewSaleRow {
+  CrewSaleRow.fromJson(Map<String, dynamic> j)
+      : pnr = _str(j['pnr']),
+        status = _str(j['status']),
+        route = _str(j['route']),
+        seats = _str(j['seats']),
+        phone = _str(j['phone']),
+        discountReason = _str(j['discount_reason']),
+        totalPoisha = _int(j['total_poisha']),
+        discountPoisha = _int(j['discount_poisha']),
+        commissionPoisha = _int(j['commission_poisha']),
+        createdAt = _str(j['created_at']),
+        departAt = _str(j['depart_at']);
+  final String pnr, status, route, seats, phone, discountReason, createdAt, departAt;
+  final int totalPoisha, discountPoisha, commissionPoisha;
+
+  DateTime? get sold => DateTime.tryParse(createdAt)?.toLocal();
+  DateTime? get departure => DateTime.tryParse(departAt)?.toLocal();
+}
+
+/// A period of takings.
+class CrewPeriod {
+  CrewPeriod.fromJson(Map<String, dynamic>? j)
+      : salesCount = _int(j?['sales_count']),
+        grossPoisha = _int(j?['gross_poisha']),
+        discountPoisha = _int(j?['discount_poisha']),
+        commissionPoisha = _int(j?['commission_poisha']);
+  final int salesCount, grossPoisha, discountPoisha, commissionPoisha;
+}
+
+/// One bus run, with its own numbers, sealed when that run ended.
+class CrewTripTotals {
+  CrewTripTotals.fromJson(Map<String, dynamic> j)
+      : tripId = _str(j['trip_id']),
+        route = _str(j['route']),
+        departAt = _str(j['depart_at']),
+        salesCount = _int(j['sales_count']),
+        grossPoisha = _int(j['gross_poisha']),
+        discountPoisha = _int(j['discount_poisha']),
+        commissionPoisha = _int(j['commission_poisha']),
+        closedAt = _str(j['closed_at']);
+  final String tripId, route, departAt, closedAt;
+  final int salesCount, grossPoisha, discountPoisha, commissionPoisha;
+
+  DateTime? get departure => DateTime.tryParse(departAt)?.toLocal();
+  bool get closed => closedAt.isNotEmpty;
+}
+
+class CrewReport {
+  CrewReport.fromJson(Map<String, dynamic> j)
+      : today = CrewPeriod.fromJson(j['today'] as Map<String, dynamic>?),
+        week = CrewPeriod.fromJson(j['week'] as Map<String, dynamic>?),
+        duty = j['duty'] == null
+            ? null
+            : DutySummary.fromJson(j['duty'] as Map<String, dynamic>),
+        trips = (j['trips'] as List? ?? const [])
+            .map((e) => CrewTripTotals.fromJson(e as Map<String, dynamic>))
+            .toList(growable: false);
+  final CrewPeriod today, week;
+  final DutySummary? duty;
+  final List<CrewTripTotals> trips;
+}
+
+/// What one sale earned, and what a discount cost.
+///
+/// Both numbers are kept because only the pair explains itself: 15 taka tells a
+/// conductor nothing; 40 earned and 25 given away tells them everything.
+class CrewCommissionRow {
+  CrewCommissionRow.fromJson(Map<String, dynamic> j)
+      : pnr = _str(j['pnr']),
+        grossPoisha = _int(j['gross_poisha']),
+        forfeitPoisha = _int(j['forfeit_poisha']),
+        amountPoisha = _int(j['amount_poisha']),
+        discountReason = _str(j['discount_reason']),
+        createdAt = _str(j['created_at']);
+  final String pnr, discountReason, createdAt;
+  final int grossPoisha, forfeitPoisha, amountPoisha;
+
+  DateTime? get earned => DateTime.tryParse(createdAt)?.toLocal();
+}
+
+/// The receipt for an on-board sale.
+class CrewSaleResult {
+  CrewSaleResult.fromJson(Map<String, dynamic> j)
+      : pnr = _str(j['pnr']),
+        bookingId = _str(j['booking_id']),
+        seats = _strs(j['seats']),
+        fullPoisha = _int(j['full_poisha']),
+        discountPoisha = _int(j['discount_poisha']),
+        totalPoisha = _int(j['total_poisha']),
+        commissionPoisha = _int(j['commission_poisha']),
+        forfeitPoisha = _int(j['forfeit_poisha']);
+  final String pnr, bookingId;
+  final List<String> seats;
+  final int fullPoisha, discountPoisha, totalPoisha, commissionPoisha, forfeitPoisha;
+}
+
+/// Where this account is signed in.
+class StaffSessionInfo {
+  StaffSessionInfo.fromJson(Map<String, dynamic> j)
+      : sessionId = _str(j['session_id']),
+        current = _bool(j['current']),
+        issuedAt = _str(j['issued_at']),
+        userAgent = _str(j['user_agent']),
+        ip = _str(j['ip']);
+  final String sessionId, issuedAt, userAgent, ip;
+  final bool current;
+
+  DateTime? get issued => DateTime.tryParse(issuedAt)?.toLocal();
+}

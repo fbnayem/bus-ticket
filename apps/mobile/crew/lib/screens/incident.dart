@@ -102,6 +102,14 @@ class _IncidentScreenState extends State<IncidentScreen> {
                   if (widget.trips.isNotEmpty) ...[
                     DropdownButtonFormField<String>(
                       initialValue: _tripId,
+                      // isExpanded, not just ellipsis on the child. The button
+                      // lays its row out with mainAxisSize.min, so the Text
+                      // takes its natural width and spills; ellipsis needs a
+                      // BOUNDED width to do anything. Without this a route name
+                      // overflowed by 81px, which is a striped banner in debug
+                      // and a silently clipped bus name in release — on the
+                      // screen a driver uses to report a breakdown.
+                      isExpanded: true,
                       decoration: InputDecoration(labelText: l('in.which')),
                       items: [
                         for (final t in widget.trips)
@@ -117,6 +125,9 @@ class _IncidentScreenState extends State<IncidentScreen> {
                   ],
                   DropdownButtonFormField<String>(
                     initialValue: _kind,
+                    // Same reason. The Bangla labels are longer than the
+                    // English ones this was laid out against.
+                    isExpanded: true,
                     decoration: InputDecoration(labelText: l('in.what')),
                     items: [
                       for (final k in _kinds)
