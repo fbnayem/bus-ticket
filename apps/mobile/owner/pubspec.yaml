@@ -1,0 +1,25 @@
+name: jatra_owner
+description: "Jatra Owner — what the fleet earned, and what it cost."
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  jatra_core:
+    path: ../jatra_core
+  shared_preferences: ^2.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  # MockClient, so the report tests exercise the real client and its real error
+  # paths rather than a hand-written stand-in for them.
+  http: ^1.2.0
+
+flutter:
+  uses-material-design: true

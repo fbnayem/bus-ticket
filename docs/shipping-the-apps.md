@@ -7,9 +7,39 @@ stop there say so rather than being quietly skipped.
 
 ---
 
+## The owner app
+
+**Built, and it builds to an APK here.** There are three mobile apps now, not
+two: passenger, crew, and owner. The owner app is the phone-sized view of what
+the web operator ERP already shows — profit and loss per bus, who sold how many
+tickets and what they earned, and the running costs the profit subtracts. It
+holds no seat logic and no money logic of its own; it reads the same
+`/owner/*` endpoints the web pages do, and the server scopes every answer to
+the operator the token belongs to.
+
+It reuses everything in `jatra_core` — the API client, the store, the crash
+guard, the Bangla/English strings, the theme — so it is a shell, four screens
+and an API client, and no new machinery. It builds to a release APK the same
+way the others do, is signed the same way (below), and has an iOS project
+scaffolded that, like the others, needs a Mac to build. It does not register
+for push, because it receives none yet; adding that later is one value in the
+device registry's allow-list and a registration on sign-in, and nothing else.
+
+```
+cd apps/mobile/owner && flutter build apk --release --dart-define=APP_VERSION=1.0.0
+```
+
+One build note specific to this machine: `android/gradle.properties` sets
+`kotlin.incremental=false`. Kotlin's incremental compiler fails here with
+"Could not close incremental caches" on the transitive plugins; a release build
+is a full compile regardless, so the only cost is slightly slower incremental
+rebuilds. The comment in the file says as much.
+
+---
+
 ## Android — release signing
 
-**Done and verified.** Both apps sign with a real upload key when one is
+**Done and verified.** All three apps sign with a real upload key when one is
 present, and fall back to the debug key with a warning in the build log when it
 is not.
 

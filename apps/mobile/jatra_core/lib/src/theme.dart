@@ -64,6 +64,12 @@ abstract final class J {
   static const bkash = Color(0xFFE2136E);
   static const nagad = Color(0xFFEE7623);
 
+  /// The owner app's own chrome. A deep pine — the operator's green from the
+  /// web ERP, darkened until it holds white text on a phone in daylight. It
+  /// says "the operator's own money" where crew graphite says "the road".
+  static const owner = Color(0xFF14352B);
+  static const ownerInk = Color(0xFFBFD3C8);
+
   /// The crew app's own chrome. Graphite rather than mid-slate, which read as
   /// "disabled" on a phone held at arm's length in sunlight.
   static const crew = Color(0xFF2C3138);
