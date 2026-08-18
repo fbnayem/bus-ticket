@@ -246,14 +246,24 @@ than the published fare within a bound their operator sets, and closes the day
 by counting a cash bag against what the platform expected. The account tab is
 theirs: details, password, and every phone their account is signed in on.
 
-Both are Bangla-first with English alongside, on the same rule the web product
-follows: Bangla words, Latin figures.
+**Jatra Owner** (operator owner and manager) — the phone-sized view of the web
+operator ERP, four tabs behind the same always-on bar: profit and loss per bus
+(the waterfall from ticket sales down to what the bus made or lost), sales by
+staff (who sold how many tickets and what they earned), running costs (record
+fuel, wages and upkeep; a cost is corrected by removal, never a negative row),
+and the account. It holds no seat or money logic of its own — it reads the same
+`/owner/*` endpoints the web pages do, scoped by the server to the operator the
+token belongs to, and a driver is refused it by the same permission that hides
+the web pages.
+
+All three are Bangla-first with English alongside, on the same rule the web
+product follows: Bangla words, Latin figures.
 
 ```
-flutter analyze     clean, all three packages
-flutter test        132 hermetic tests — 53 passenger, 49 crew, 30 voice grammar
+flutter analyze     clean, all four packages
+flutter test        148 hermetic tests — 55 crew, 53 passenger, 35 core, 5 owner
 --tags live          8 more, driving the running platform end to end (add --run-skipped)
-flutter build apk    Jatra 53 MB · Jatra Crew 65 MB
+flutter build apk    Jatra 53 MB · Jatra Crew 65 MB · Jatra Owner 53 MB
 on a device         both installed and driven: search → ticket, roster → boarding scan,
                     a whole booking started by voice, and a conductor opening a
                     cash bag, selling at a negotiated fare and counting up short
