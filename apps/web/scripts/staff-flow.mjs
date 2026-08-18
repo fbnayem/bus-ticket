@@ -249,6 +249,12 @@ try {
   let departures = 0, roomFree = 0;
   // Days 1 and 2 only: the crew app shows trips within +2, and every seat
   // sold here has to be boardable from a manifest later in this flow.
+  // Deliberately a narrow window. Scanning further ahead does find seats when
+  // the near dates are full, and it breaks the two checks below it: the driver
+  // app only shows trips within bd_today-1..+2, so a sale five days out lands on
+  // a manifest the crew cannot open. Running out of seats here is a fixture
+  // problem with a one-line remedy, and it should say so rather than drift the
+  // date until something further down fails for an unrelated-looking reason.
   for (const ahead of [2, 1]) {
     await page.fill('#c-from', 'Dhaka');
     await page.fill('#c-to', 'ctg');          // alias resolved server-side
@@ -267,7 +273,16 @@ try {
     if (roomFree >= 8) { SELL_DATE = inDays(ahead); break; }
   }
   check('the POS searches the same inventory as the website', departures >= 4, `${departures} departures`);
-  check('a departure with room was found', roomFree >= 8, `${SELL_DATE} · ${roomFree} free`);
+  const OUT_OF_SEATS =
+    'the fixtures are out of seats — run: node scripts/reset-fixtures.mjs --days 21';
+  check('a departure with room was found', roomFree >= 8,
+    roomFree >= 8 ? `${SELL_DATE} · ${roomFree} free`
+                  : `best was ${roomFree} free · ${OUT_OF_SEATS}`);
+  // Without this the next click waits thirty seconds for a row that cannot
+  // exist and reports a timeout, which reads like a broken page.
+  if (roomFree < 8) { console.log(`
+${OUT_OF_SEATS}
+`); process.exit(1); }
 
   await chooseOperatorRow('Seats');
   await page.waitForSelector('.bus button.seat', { timeout: 20000 });
@@ -549,16 +564,28 @@ try {
   await page.waitForSelector('table.data tbody tr', { timeout: 20000 });
   // More than one Green Line departure runs on this date, so open manifests
   // until the one carrying this run's passengers turns up.
-  const manifestButtons = page.locator('button:has-text("Manifest")');
+  //
+  // Going back to the list is done by asking for it, not by page.goBack().
+  // Filling the date filter does not push a history entry, so "back" from the
+  // second manifest returned to the ERP dashboard rather than the trips list,
+  // and the next Manifest button never appeared. It only ever bit when the PNR
+  // was on the second manifest, so it stayed hidden until a later sell date put
+  // it there — a test that passed for the wrong reason.
+  const openTripsList = async () => {
+    await page.goto(`${WEB}/operator/trips`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('input[type="date"]', { timeout: 20000 });
+    await page.fill('input[type="date"]', SELL_DATE);
+    await page.waitForSelector('button:has-text("Manifest")', { timeout: 20000 });
+  };
   let manifestText = '';
-  for (let m = 0; m < (await manifestButtons.count()); m++) {
-    await manifestButtons.nth(m).click();
+  const manifestCount = await page.locator('button:has-text("Manifest")').count();
+  for (let m = 0; m < manifestCount; m++) {
+    if (m > 0) await openTripsList();
+    await page.locator('button:has-text("Manifest")').nth(m).click();
     await page.waitForSelector('text=Passenger manifest', { timeout: 20000 });
     await page.waitForTimeout(500);
     manifestText = (await page.locator('table.data tbody tr').allInnerTexts()).join(' ').toUpperCase();
     if (manifestText.includes(counterPnr)) break;
-    await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => undefined);
-    await page.waitForSelector('button:has-text("Manifest")', { timeout: 20000 });
   }
   check('one manifest carries every channel that sold a seat',
     ['COUNTER', 'COUNTER_OFFLINE', 'AGENT'].every((c) => manifestText.includes(c)),

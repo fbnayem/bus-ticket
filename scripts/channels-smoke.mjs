@@ -119,20 +119,48 @@ check('a second open drawer is refused', second.status === 409, second.body?.err
 // nothing to do with what is being tested. The counter clerk and the crew below
 // both belong to Green Line, so it must be a Green Line departure — that is the
 // trip the manifest test reads back.
-let date = null, trip = null, search = null, free = [];
-for (let ahead = 3; ahead <= 12 && !trip; ahead++) {
-  date = new Date(Date.now() + ahead * 864e5).toISOString().slice(0, 10);
-  search = (await call(`/search?from=Dhaka&to=Chattogram&date=${date}`, { expect: 200 })).body;
-  const candidate = search.results.find((t) => t.brand === 'Green Line');
-  if (!candidate) continue;
-  const map = (await call(
-    `/trips/${candidate.trip_id}/seatmap?board_seq=${candidate.board_seq}&drop_seq=${candidate.drop_seq}`,
-    { expect: 200 })).body;
-  const open = map.seats.filter((s) => s.available).map((s) => s.seat_no);
-  if (open.length >= 8) { trip = candidate; free = open; }
+//
+// findRoom scans forward for a departure that still has seats. It tries EVERY
+// candidate on a date rather than only the first: Green Line runs more than one
+// departure a day, and taking whichever sorted first meant a full 08:30 hid an
+// empty 22:00 and the whole date was skipped. That, plus a window that stopped
+// at twelve days, is what made this suite run out of seats and then die on a
+// null trip with a TypeError instead of saying what was wrong.
+async function findRoom(brand, minSeats, aheadFrom = 3, aheadTo = 25) {
+  let lastSearch = null, best = { free: [], date: null };
+  for (let ahead = aheadFrom; ahead <= aheadTo; ahead++) {
+    const d = new Date(Date.now() + ahead * 864e5).toISOString().slice(0, 10);
+    lastSearch = (await call(`/search?from=Dhaka&to=Chattogram&date=${d}`, { expect: 200 })).body;
+    for (const candidate of lastSearch.results.filter((t) => t.brand === brand)) {
+      const map = (await call(
+        `/trips/${candidate.trip_id}/seatmap?board_seq=${candidate.board_seq}&drop_seq=${candidate.drop_seq}`,
+        { expect: 200 })).body;
+      const open = map.seats.filter((s) => s.available).map((s) => s.seat_no);
+      if (open.length > best.free.length) best = { free: open, date: d, trip: candidate };
+      if (open.length >= minSeats) return { trip: candidate, free: open, date: d, search: lastSearch };
+    }
+  }
+  return { trip: null, free: best.free, date: best.date, search: lastSearch };
 }
+
+// Every suite here sells real seats and nothing puts them back, so running it
+// often enough exhausts the fixtures. That is a fixture problem, not a product
+// problem, and it should say so in one line rather than fail somewhere further
+// down for a reason that reads like a defect.
+const OUT_OF_SEATS =
+  'the fixtures are out of seats — run: node scripts/reset-fixtures.mjs --days 21';
+
+const room = await findRoom('Green Line', 8);
+const { trip, free, date, search } = room;
 check('trips available to sell', search.results.length > 0, `${search.results.length} departures`);
-check('a departure with room was found', trip !== null, `${date} · ${free.length} free`);
+check('a departure with room was found', trip !== null,
+  trip ? `${date} · ${free.length} free` : `best was ${free.length} free · ${OUT_OF_SEATS}`);
+if (!trip) {
+  console.log(`
+${OUT_OF_SEATS}
+`);
+  process.exit(1);
+}
 
 const sale = (await call('/counter/sales', {
   method: 'POST', token: clerk.token, expect: 201,
@@ -541,13 +569,18 @@ if (!sid) {
 const detail = (await call(`/admin/settlements/${sid}`, { token: finance.token, expect: 200 })).body;
 check('settlement itemises the bookings', detail.items.length > 0, `${detail.items.length} items`);
 
+// Two independent gates guard approval — an unreviewed settlement, and an open
+// reconciliation exception inside the window — and the server is free to answer
+// with whichever it checks first. This used to assert not_reviewed outright and
+// went red the moment enough exceptions had accumulated for the other gate to
+// answer first: a correct refusal reported as a failure. Each gate is now
+// cleared before the next is asserted, so both are proved and neither depends
+// on how much history is lying around.
 const earlyApprove = await call(`/admin/settlements/${sid}/approve`, {
   method: 'POST', token: finance.token,
 });
-check('a settlement cannot be approved before review',
-  earlyApprove.status === 409 && earlyApprove.body?.error === 'not_reviewed', earlyApprove.body?.error);
-
-await call(`/admin/settlements/${sid}/review`, { method: 'POST', token: finance.token, expect: 200 });
+check('a settlement cannot be approved straight out of calculation',
+  earlyApprove.status === 409, `${earlyApprove.status} ${earlyApprove.body?.error ?? ''}`);
 
 // The reconciliation gate. An unresolved exception anywhere inside the window
 // blocks approval, with no override. If any are open, prove the refusal first,
@@ -573,10 +606,22 @@ if (openInWindow.length > 0) {
     'nothing open in this window');
   check('and approval opens once they are cleared', true, 'nothing to clear');
 }
+
+// With the reconciliation gate clear, the review gate is the only one left that
+// can answer — so now it can be asserted by name rather than by hope.
+const unreviewed = await call(`/admin/settlements/${sid}/approve`,
+  { method: 'POST', token: admin.token });
+check('a settlement cannot be approved before somebody reviews it',
+  unreviewed.status === 409 && unreviewed.body?.error === 'not_reviewed',
+  `${unreviewed.status} ${unreviewed.body?.error ?? ''}`);
+
+await call(`/admin/settlements/${sid}/review`, { method: 'POST', token: finance.token, expect: 200 });
+
 const selfApproveSettlement = await call(`/admin/settlements/${sid}/approve`, {
   method: 'POST', token: finance.token,
 });
-check('the reviewer cannot also approve', selfApproveSettlement.status === 409,
+check('the reviewer cannot also approve',
+  selfApproveSettlement.status === 409 && selfApproveSettlement.body?.error === 'self_approval',
   selfApproveSettlement.body?.error);
 
 const approvedSettlement = await call(`/admin/settlements/${sid}/approve`, {
@@ -653,20 +698,16 @@ console.log('\n=== 9. ON-BOARD SELLING, CASH AND COMMISSION ===');
 // `trip` until it is nearly full, and a suite that fails because a previous
 // section did its job is a suite nobody trusts. Section 8 already proves the
 // one-inventory contention; this section is about money.
-let cTrip = null, cSeats = [];
-for (let ahead = 4; ahead <= 14 && !cTrip; ahead++) {
-  const d = new Date(Date.now() + ahead * 864e5).toISOString().slice(0, 10);
-  const found = (await call(`/search?from=Dhaka&to=Chattogram&date=${d}`, { expect: 200 })).body;
-  const candidate = found.results.find((t) => t.brand === 'Green Line');
-  if (!candidate) continue;
-  const map = (await call(
-    `/trips/${candidate.trip_id}/seatmap?board=${candidate.board_seq}&drop=${candidate.drop_seq}`,
-    { expect: 200 })).body;
-  const open = map.seats.filter((s) => s.available).map((s) => s.seat_no);
-  if (open.length >= 6) { cTrip = candidate; cSeats = open; }
-}
+const cRoom = await findRoom('Green Line', 6, 4, 25);
+const cTrip = cRoom.trip, cSeats = cRoom.free;
 check('a departure with room to sell on board was found', cTrip !== null,
-  cTrip ? `${cSeats.length} free` : 'none in the next fortnight');
+  cTrip ? `${cSeats.length} free` : `best was ${cSeats.length} free · ${OUT_OF_SEATS}`);
+if (!cTrip) {
+  console.log(`
+${OUT_OF_SEATS}
+`);
+  process.exit(1);
+}
 
 const cDriver = await login('driver@greenline.test');
 check('the crew app has a home to land on', cDriver.home === '/driver', cDriver.home);

@@ -30,8 +30,9 @@ var (
 func TestMain(m *testing.M) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		fmt.Println("DATABASE_URL not set; skipping commerce proof suite")
-		os.Exit(0)
+		fmt.Println("DATABASE_URL not set; database-backed proofs will skip")
+		noDB = true
+		os.Exit(m.Run())
 	}
 	cfg, _ := pgxpool.ParseConfig(dsn)
 	cfg.MaxConns = 40
@@ -57,6 +58,21 @@ func TestMain(m *testing.M) {
 	inv = inventory.New(pool)
 	svc = New(pool, inv, []byte("qr-signing-key-v1"), []byte("provider-webhook-secret"))
 	os.Exit(m.Run())
+}
+
+// noDB records that this run has no database behind it. It is a skip, not a
+// pass: TestMain used to os.Exit(0) here, which reported the whole package as
+// "ok" without running a line of it — a green suite that proved nothing, and
+// the failure mode of a CI job that forgets to set DATABASE_URL. Now the tests
+// that need a database say so individually and the ones that do not still run.
+var noDB bool
+
+// requireDB skips a test that cannot run without a database.
+func requireDB(t *testing.T) {
+	t.Helper()
+	if noDB {
+		t.Skip("DATABASE_URL not set; this proof needs a database")
+	}
 }
 
 func envInt(k string, def int) int {
@@ -117,6 +133,7 @@ func mustUUID(t *testing.T) string {
 // one payment, one confirmation, one ticket per seat, and one balanced journal.
 // ---------------------------------------------------------------------------
 func TestProof9_WebhookStorm(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	replays := envInt("PROOF_WEBHOOK_REPLAYS", 100)
 
@@ -177,6 +194,7 @@ func TestProof9_WebhookStorm(t *testing.T) {
 // refused, and none may move a seat or a taka.
 // ---------------------------------------------------------------------------
 func TestProof10_WebhookVerificationChain(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	_, bookingID, _, total := bookedTrip(t)
 
@@ -230,6 +248,7 @@ func TestProof10_WebhookVerificationChain(t *testing.T) {
 // without a backfill.
 // ---------------------------------------------------------------------------
 func TestProof11_LedgerBalances(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 
 	for i := 0; i < 25; i++ {
@@ -325,6 +344,7 @@ func TestProof11_LedgerBalances(t *testing.T) {
 // in the inventory service afterwards. One run of the whole Phase 1 chain.
 // ---------------------------------------------------------------------------
 func TestProof12_EndToEnd(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	tripID, bookingID, holdID, total := bookedTrip(t)
 

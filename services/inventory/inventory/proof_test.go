@@ -25,8 +25,9 @@ var pool *pgxpool.Pool
 func TestMain(m *testing.M) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		fmt.Println("DATABASE_URL not set; skipping inventory proof suite")
-		os.Exit(0)
+		fmt.Println("DATABASE_URL not set; database-backed proofs will skip")
+		noDB = true
+		os.Exit(m.Run())
 	}
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -55,6 +56,21 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Exit(m.Run())
+}
+
+// noDB records that this run has no database behind it. It is a skip, not a
+// pass: TestMain used to os.Exit(0) here, which reported the whole package as
+// "ok" without running a line of it — a green suite that proved nothing, and
+// the failure mode of a CI job that forgets to set DATABASE_URL. Now the tests
+// that need a database say so individually and the ones that do not still run.
+var noDB bool
+
+// requireDB skips a test that cannot run without a database.
+func requireDB(t *testing.T) {
+	t.Helper()
+	if noDB {
+		t.Skip("DATABASE_URL not set; this proof needs a database")
+	}
 }
 
 func envInt(k string, def int) int {
@@ -93,6 +109,7 @@ func newTrip(t *testing.T, segments, seatCount int) (*Store, string) {
 // Exactly one may win. Zero duplicate ownership. Every loser mutates nothing.
 // ---------------------------------------------------------------------------
 func TestProof1_StampedeOneSeat(t *testing.T) {
+	requireDB(t)
 	contenders := envInt("PROOF_CONTENDERS", 20000)
 	workers := envInt("PROOF_WORKERS", 160)
 
@@ -178,6 +195,7 @@ func TestProof1_StampedeOneSeat(t *testing.T) {
 // independent oracle over all journey pairs.
 // ---------------------------------------------------------------------------
 func TestProof2_SegmentMatrix(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	type journey struct {
 		name       string
@@ -230,6 +248,7 @@ func TestProof2_SegmentMatrix(t *testing.T) {
 
 // The headline case from the specification, called out on its own.
 func TestProof2b_ResaleAfterPartialSale(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	st, tripID := newTrip(t, 3, 4)
 
@@ -271,6 +290,7 @@ func TestProof2b_ResaleAfterPartialSale(t *testing.T) {
 // This is the case a single current_hold_id column cannot represent.
 // ---------------------------------------------------------------------------
 func TestProof3_ConcurrentDisjointHoldsOnOneSeat(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	st, tripID := newTrip(t, 3, 4)
 
@@ -312,6 +332,7 @@ func TestProof3_ConcurrentDisjointHoldsOnOneSeat(t *testing.T) {
 // one outcome. Never "paid but seat released"; never "seat sold but hold gone".
 // ---------------------------------------------------------------------------
 func TestProof4_ExpiryRace(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	iterations := envInt("PROOF_RACE_ITERS", 300)
 
@@ -392,6 +413,7 @@ func TestProof4_ExpiryRace(t *testing.T) {
 // same confirm delivered 100 times concurrently produces exactly one effect.
 // ---------------------------------------------------------------------------
 func TestProof5_IdempotentConfirm(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	st, tripID := newTrip(t, 3, 4)
 
@@ -436,6 +458,7 @@ func TestProof5_IdempotentConfirm(t *testing.T) {
 // win, the loser must leave zero seats taken, and neither may deadlock.
 // ---------------------------------------------------------------------------
 func TestProof6_MultiSeatAtomicity(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	rounds := envInt("PROOF_MULTISEAT_ROUNDS", 200)
 
@@ -488,6 +511,7 @@ func TestProof6_MultiSeatAtomicity(t *testing.T) {
 // If these ever diverge, a mutation lost or invented a fact.
 // ---------------------------------------------------------------------------
 func TestProof7_EventLogReconciles(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	st, tripID := newTrip(t, 3, 12)
 
@@ -558,6 +582,7 @@ func TestProof7_EventLogReconciles(t *testing.T) {
 // no cache at all, expired holds must still free their seats.
 // ---------------------------------------------------------------------------
 func TestProof8_ExpirySweeperFreesSeats(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	st, tripID := newTrip(t, 3, 40)
 

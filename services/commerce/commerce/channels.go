@@ -436,13 +436,23 @@ func (s *Service) CalculateSettlement(ctx context.Context, operatorID, from, to 
 
 	// Platform commission is 10% of base plus the service fee — the same split
 	// the journal posted at sale time, recomputed here from the same inputs.
+	//
+	// "The same inputs" means the UNDISCOUNTED base, which is what the sale
+	// journal used. total_poisha is what the passenger paid; on a discounted
+	// on-board sale that is less than the published price, and recomputing the
+	// platform's cut from it produced a smaller number than the ledger had
+	// already posted — the settlement quietly handing the operator a tenth of
+	// every discount a conductor granted. Measured across the demo data before
+	// this was fixed: ৳14,781.00 posted, ৳14,350.16 recomputed, ৳430.84 adrift.
+	// discount_poisha is 0 for every channel that cannot discount, so this is
+	// the same arithmetic as before everywhere else.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO finance.settlement_items
 			(settlement_id, booking_id, gross_poisha, commission_poisha, refund_poisha, net_poisha)
 		SELECT $1::uuid, b.booking_id, b.total_poisha,
-		       ((b.total_poisha - $4::bigint) / 10) + $4::bigint,
+		       (((b.total_poisha + b.discount_poisha) - $4::bigint) / 10) + $4::bigint,
 		       COALESCE(r.refunded, 0),
-		       b.total_poisha - (((b.total_poisha - $4::bigint) / 10) + $4::bigint) - COALESCE(r.refunded, 0)
+		       b.total_poisha - ((((b.total_poisha + b.discount_poisha) - $4::bigint) / 10) + $4::bigint) - COALESCE(r.refunded, 0)
 		  FROM commerce.bookings b
 		  LEFT JOIN LATERAL (
 		        SELECT COALESCE(sum(rf.amount_poisha),0) AS refunded

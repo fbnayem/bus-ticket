@@ -32,8 +32,9 @@ var pool *pgxpool.Pool
 func TestMain(m *testing.M) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		fmt.Println("DATABASE_URL not set; skipping wallet proof suite")
-		os.Exit(0)
+		fmt.Println("DATABASE_URL not set; database-backed proofs will skip")
+		noDB = true
+		os.Exit(m.Run())
 	}
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -62,6 +63,21 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Exit(m.Run())
+}
+
+// noDB records that this run has no database behind it. It is a skip, not a
+// pass: TestMain used to os.Exit(0) here, which reported the whole package as
+// "ok" without running a line of it — a green suite that proved nothing, and
+// the failure mode of a CI job that forgets to set DATABASE_URL. Now the tests
+// that need a database say so individually and the ones that do not still run.
+var noDB bool
+
+// requireDB skips a test that cannot run without a database.
+func requireDB(t *testing.T) {
+	t.Helper()
+	if noDB {
+		t.Skip("DATABASE_URL not set; this proof needs a database")
+	}
 }
 
 func envInt(k string, def int) int {
@@ -107,6 +123,7 @@ func newWallet(t *testing.T, available, credit int64) (*Store, string, string) {
 // for ten tickets, a thousand concurrent purchase attempts, at most ten sales
 // and zero negative equity.
 func TestWalletCannotOversell(t *testing.T) {
+	requireDB(t)
 	const (
 		ticket    = 120000 // ৳1,200
 		capacity  = 10
@@ -191,6 +208,7 @@ func TestWalletCannotOversell(t *testing.T) {
 // sale path — a timeout, a redelivered message, an impatient clerk — charges an
 // agent twice for one ticket.
 func TestCaptureIsIdempotent(t *testing.T) {
+	requireDB(t)
 	const amount = 50000
 	st, agencyID, walletID := newWallet(t, 500000, 0)
 	ctx := context.Background()
@@ -253,6 +271,7 @@ func TestCaptureIsIdempotent(t *testing.T) {
 // Release runs on every failed sale, and it runs more than once when a retry
 // races a cleanup. Releasing twice must not hand the agent free credit.
 func TestReleaseIsIdempotentAndRestoresPower(t *testing.T) {
+	requireDB(t)
 	const amount = 75000
 	st, agencyID, walletID := newWallet(t, 300000, 100000)
 	ctx := context.Background()
@@ -299,6 +318,7 @@ func TestReleaseIsIdempotentAndRestoresPower(t *testing.T) {
 // Asserted against the database, not the service: even if a future caller
 // forgets the check, the CHECK constraint refuses the row.
 func TestRechargeRequiresASecondPerson(t *testing.T) {
+	requireDB(t)
 	ctx := context.Background()
 	st, agencyID, walletID := newWallet(t, 0, 0)
 

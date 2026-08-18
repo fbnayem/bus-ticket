@@ -81,15 +81,18 @@ name hardcoded in the app.
 ### Verify it
 
 ```bash
-# 29 concurrency, money, promotion and event proofs (needs only Docker)
+# 30 concurrency, money, promotion and event proofs (needs only Docker)
 cd deploy && docker compose run --rm proof
+
+# the money arithmetic alone, with no database at all
+go test ./services/commerce/...    # DB-backed proofs report SKIP, not a silent pass
 
 # the 100,000-contender stampede from the specification
 docker compose run --rm -e PROOF_CONTENDERS=100000 -e PROOF_WORKERS=256 -e PROOF_POOL=90 proof
 
 # API flow suites against a running API
-node scripts/smoke.mjs             # 38 checks — passenger booking and sign-in
-node scripts/channels-smoke.mjs    # 79 checks — all six staff channels
+node scripts/smoke.mjs             # 50 checks — passenger booking and sign-in
+node scripts/channels-smoke.mjs    # 109 checks — all six staff channels
 node scripts/platform-smoke.mjs    # 70 checks — backbone, notifications, search,
                                    #             promotions, reconciliation, control
                                    #             centre, partner API, risk, analytics
@@ -99,7 +102,7 @@ node scripts/platform-smoke.mjs    # 70 checks — backbone, notifications, sear
 cd apps/web
 node scripts/browser-flow.mjs      # 41 checks — search → pay → ticket → cancel → sign in,
                                    #             and the ticket opening with the network cut
-node scripts/staff-flow.mjs        # 86 checks — all six staff apps and every console,
+node scripts/staff-flow.mjs        # 85 checks — all six staff apps and every console,
                                    #             including a real network cut
 node scripts/lang-audit.mjs        # every Bangla surface, working AND failing
 node scripts/place-picker.mjs      # 18 checks — typos, Bangla input, terminals,
@@ -112,14 +115,19 @@ disables the caching a service worker depends on — so under `dev` that check
 fails on the dev server rather than on the product. Everything else in the
 suites passes either way; the offline check is the one that does not.
 
-The browser suites sell real tickets on real trips, and the corridor fixture has
+Every suite here sells real tickets on real trips, and the corridor fixture has
 one departure per operator per day. Run them enough times and the near
 departures fill up — at which point the suites are failing on a seat shortage
-rather than on anything about the platform. Give the seats back with:
+rather than on anything about the platform. They say so in one line and stop
+rather than failing further down for a reason that reads like a defect. Give the
+seats back with:
 
 ```bash
-node scripts/reset-fixtures.mjs --days 4
+node scripts/reset-fixtures.mjs --days 21
 ```
+
+`--days 4` is enough for the browser suites, which sell a day or two out; the
+API suites reach further ahead and need the wider window.
 
 That cancels those bookings through the same endpoint a passenger uses, so
 refunds are quoted by policy, seats are released by inventory-service and the

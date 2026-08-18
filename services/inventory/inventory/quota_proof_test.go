@@ -38,6 +38,7 @@ func newCounter(t *testing.T) string {
 // the website, the counter and the website would both be able to sell it, and
 // the counter would find out at the bus door.
 func TestQuotaRemovesSeatFromGeneralSale(t *testing.T) {
+	requireDB(t)
 	st, tripID := newTrip(t, 3, 12)
 	counterID := newCounter(t)
 	ctx := context.Background()
@@ -86,6 +87,7 @@ func TestQuotaRemovesSeatFromGeneralSale(t *testing.T) {
 // that has been offline for an hour will happily replay whatever its operator
 // typed; the seat it did not own must be refused here, by the service.
 func TestOfflineSaleOutsideQuotaIsRefused(t *testing.T) {
+	requireDB(t)
 	st, tripID := newTrip(t, 3, 12)
 	counterID := newCounter(t)
 	other := newCounter(t)
@@ -129,6 +131,7 @@ func TestOfflineSaleOutsideQuotaIsRefused(t *testing.T) {
 // blocked → sold exactly once, so every replay after the first is refused
 // rather than producing a second booking.
 func TestQuotaSaleSurvivesReplayStorm(t *testing.T) {
+	requireDB(t)
 	st, tripID := newTrip(t, 3, 12)
 	counterID := newCounter(t)
 	ctx := context.Background()
@@ -182,6 +185,7 @@ func TestQuotaSaleSurvivesReplayStorm(t *testing.T) {
 // segment arithmetic that makes multi-stop selling work has to apply to quota
 // exactly as it applies to a passenger hold.
 func TestQuotaIsSegmentScoped(t *testing.T) {
+	requireDB(t)
 	st, tripID := newTrip(t, 3, 12)
 	counterID := newCounter(t)
 	ctx := context.Background()
@@ -215,6 +219,7 @@ func TestQuotaIsSegmentScoped(t *testing.T) {
 //
 // Without a cap, a counter could quietly take an entire bus out of general sale.
 func TestQuotaIsCapped(t *testing.T) {
+	requireDB(t)
 	st, tripID := newTrip(t, 3, 40)
 	counterID := newCounter(t)
 	ctx := context.Background()

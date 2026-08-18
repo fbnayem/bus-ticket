@@ -354,6 +354,30 @@ short and got **VARIANCE**, with the trial balance still exactly zero.
 
 ---
 
+## What a settlement says about a discounted sale
+
+`CalculateSettlement` deliberately recomputes an operator's payable from the
+bookings rather than reading the ledger, so a late refund is picked up on the
+next run. That makes it a second implementation of the platform's cut, and the
+two had drifted: the commission was recomputed from `total_poisha`, which is
+what the passenger paid. On a discounted on-board sale that is less than the
+published price, so the settlement produced a smaller platform cut than the
+journal had already posted, and handed the operator the difference.
+
+Across the demo data: **৳14,781.00 posted, ৳14,350.16 recomputed, ৳430.84
+adrift** — a tenth of every discount a conductor had ever granted. It now
+recomputes from `total_poisha + discount_poisha`, the undiscounted base the sale
+journal used. `discount_poisha` is 0 on every channel that cannot discount, so
+nothing else moves.
+
+`TestSettlementCommissionAgreesWithTheLedger` compares every settlement item
+with the `4101` leg posted for that booking — per booking, not in total, because
+two errors of opposite sign summing to zero is not agreement. It refuses to pass
+on a window with no discounted sale in it, since that is a window where the
+drift would be invisible.
+
+---
+
 ## What the owner app will read
 
 The owner app does not exist yet, and this section is here so the shape it needs
@@ -389,7 +413,14 @@ app rather than a report over what is already here.
   branch does not change that.
 - **Nothing here nets counter or crew cash off the platform→operator
   settlement.** `CalculateSettlement` still computes the operator's payable
-  across all channels alike. That simplification predates this branch, it is
-  worth fixing, and it is not this change.
+  across all channels alike, so the platform would pay out cash its own books
+  say an operator's staff already took: of Green Line's ৳761,840 in the demo
+  data, ৳303,590 — counter, offline counter and on-board — never reached the
+  platform. Fixing it is a decision about the business rather than the code:
+  either the cash is the platform's until remitted, in which case what is
+  missing is a remittance posting (nothing clears `1001`/`1002` today, so they
+  accumulate for ever), or the cash is the operator's, in which case the
+  settlement must deduct it. Both are defensible and they move real money in
+  opposite directions, so it is not a call to make quietly.
 - Seeded local fixtures — the demo staff password, the sandbox keys — are still
   public in this repository and should be rotated before anything real.
