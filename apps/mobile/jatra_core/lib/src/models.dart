@@ -398,13 +398,23 @@ class ManifestPassenger {
         channel = _str(j['channel']),
         ticketStatus = _str(j['ticket_status']),
         from = _str(j['from']),
-        to = _str(j['to']);
+        to = _str(j['to']),
+        qrToken = _str(j['qr_token']);
   final String seatNo, pnr, passenger, phone, channel, ticketStatus, from, to;
+
+  /// The code printed on this passenger's ticket.
+  ///
+  /// Carried so a phone with no signal can match a scanned QR against the list
+  /// it downloaded before departure. Without it, offline scanning only works
+  /// for a PNR somebody types — which is the case the camera exists to avoid.
+  final String qrToken;
+
   bool get boarded => ticketStatus == 'BOARDED';
 
   Map<String, dynamic> toJson() => {
         'seat_no': seatNo, 'pnr': pnr, 'passenger': passenger, 'phone': phone,
         'channel': channel, 'ticket_status': ticketStatus, 'from': from, 'to': to,
+        'qr_token': qrToken,
       };
 }
 

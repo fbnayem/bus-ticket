@@ -27,14 +27,25 @@ class Boarding {
   ///
   /// Returns a verdict in every case, including refusal and including no
   /// network. The crew never sees an exception; they see an instruction.
+  /// A code read off a ticket, however it was read.
+  ///
+  /// [qrToken] and [pnr] are separate arguments rather than one "code" because
+  /// the caller always knows which it has, and the two are not interchangeable:
+  /// a PNR is six characters a helper reads aloud, a QR token is a signed
+  /// string in which case is significant. Collapsing them meant every scanned
+  /// ticket was upper-cased and looked up as a PNR, and every scan of a real
+  /// ticket came back NOT_FOUND — the whole camera path, never working, hidden
+  /// behind a manual-entry fallback that did.
   Future<ScanVerdict> check({
     required String tripId,
-    required String pnr,
+    String pnr = '',
+    String qrToken = '',
     String seatNo = '',
     required L l,
   }) async {
     final clientRef = 'scan-${store.deviceRef}-${DateTime.now().microsecondsSinceEpoch}';
     final cleanPnr = pnr.trim().toUpperCase();
+    final cleanToken = qrToken.trim();
     final cleanSeat = seatNo.trim().toUpperCase();
 
     try {
@@ -42,6 +53,7 @@ class Boarding {
         clientRef: clientRef,
         tripId: tripId,
         pnr: cleanPnr,
+        qrToken: cleanToken,
         seatNo: cleanSeat,
         deviceRef: store.deviceRef,
       );
@@ -51,6 +63,7 @@ class Boarding {
         clientRef: clientRef,
         tripId: tripId,
         pnr: cleanPnr,
+        qrToken: cleanToken,
         seatNo: cleanSeat,
         l: l,
       );
@@ -61,13 +74,20 @@ class Boarding {
     required String clientRef,
     required String tripId,
     required String pnr,
+    String qrToken = '',
     required String seatNo,
     required L l,
   }) async {
     final manifest = store.cachedManifest(tripId);
     ManifestPassenger? row;
     for (final p in manifest?.passengers ?? const <ManifestPassenger>[]) {
-      if (p.pnr == pnr && (seatNo.isEmpty || p.seatNo == seatNo)) {
+      // Matched on whichever the crew actually presented. The token is exact
+      // and identifies one ticket; a PNR may cover several seats, so a seat
+      // narrows it when one was given.
+      final hit = qrToken.isNotEmpty
+          ? p.qrToken == qrToken
+          : p.pnr == pnr && (seatNo.isEmpty || p.seatNo == seatNo);
+      if (hit) {
         row = p;
         break;
       }
@@ -97,11 +117,14 @@ class Boarding {
       );
     }
 
+    // Queued with the PNR and seat resolved from the manifest, not with the raw
+    // token: by the time this replays, the seat is what the office needs to see
+    // and the row it matched is the one that decided the verdict.
     await store.queueScan({
       'client_ref': clientRef,
       'trip_id': tripId,
-      'pnr': pnr,
-      'seat_no': seatNo,
+      'pnr': row.pnr,
+      'seat_no': row.seatNo,
       'device_ref': store.deviceRef,
       'scanned_at': DateTime.now().toUtc().toIso8601String(),
     });

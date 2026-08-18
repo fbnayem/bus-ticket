@@ -575,6 +575,15 @@ const Map<String, Str> kStrings = {
   'sl.reason.STAFF': Str('Staff', 'কর্মী'),
   'sl.reason.NEGOTIATED': Str('Negotiated', 'দরদাম করা'),
 
+  // When something goes wrong that nobody planned for
+  'crash.title': Str('The app has stopped', 'অ্যাপটি বন্ধ হয়ে গেছে'),
+  'crash.told': Str(
+      'The office has been told what went wrong. Close the app and open it again — '
+      'anything already sold is safe.',
+      'কী সমস্যা হয়েছে তা অফিসে জানানো হয়েছে। অ্যাপটি বন্ধ করে আবার চালু করুন — '
+      'যা বিক্রি হয়ে গেছে তা নিরাপদ আছে।'),
+  'crash.detail': Str('Technical detail', 'কারিগরি বিবরণ'),
+
   // Money
   'mn.title': Str('Money', 'হিসাব'),
   'mn.duty': Str('Duty', 'ডিউটি'),

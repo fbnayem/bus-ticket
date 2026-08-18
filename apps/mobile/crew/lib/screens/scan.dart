@@ -52,7 +52,13 @@ class _ScanScreenState extends State<ScanScreen> {
     super.dispose();
   }
 
-  Future<void> _check(String code) async {
+  /// [scanned] says where the code came from, and that decides how it is sent.
+  ///
+  /// The camera reads a signed QR token; a helper types a six-character PNR.
+  /// They are not interchangeable and were being treated as one — everything
+  /// the camera saw was upper-cased and looked up as a PNR, so every scan of a
+  /// real ticket came back NOT_FOUND while the typed path worked fine.
+  Future<void> _check(String code, {required bool scanned}) async {
     if (_checking || code.trim().isEmpty) return;
     setState(() {
       _checking = true;
@@ -61,7 +67,8 @@ class _ScanScreenState extends State<ScanScreen> {
     try {
       final v = await widget.boarding.check(
         tripId: widget.trip.tripId,
-        pnr: code,
+        pnr: scanned ? '' : code,
+        qrToken: scanned ? code : '',
         l: L.of(context),
       );
       if (!mounted) return;
@@ -136,7 +143,7 @@ class _ScanScreenState extends State<ScanScreen> {
             controller: _controller,
             onDetect: (capture) {
               final raw = capture.barcodes.firstOrNull?.rawValue;
-              if (raw != null) _check(raw);
+              if (raw != null) _check(raw, scanned: true);
             },
             errorBuilder: (context, error) => Container(
               color: J.crew,
@@ -184,12 +191,12 @@ class _ScanScreenState extends State<ScanScreen> {
               decoration: InputDecoration(labelText: l('sc.number'), hintText: 'K7W4VP'),
               style: const TextStyle(
                   fontSize: 24, letterSpacing: 2, fontFeatures: [FontFeature.tabularFigures()]),
-              onSubmitted: _check,
+              onSubmitted: (v) => _check(v, scanned: false),
             ),
             const SizedBox(height: 12),
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: J.field),
-              onPressed: _checking ? null : () => _check(_typed.text),
+              onPressed: _checking ? null : () => _check(_typed.text, scanned: false),
               child: Text(l('sc.go')),
             ),
           ],

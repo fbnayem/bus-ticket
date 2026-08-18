@@ -12,16 +12,26 @@ import 'screens/tickets.dart';
 import 'screens/voice.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final store = await Store.open();
-  final reminders = await Reminders.start(store);
-  final state = AppState(
-    api: PassengerApi(ApiClient()),
-    store: store,
-    reminders: reminders,
-  );
-  runApp(PassengerApp(state: state));
+  final client = ApiClient();
+  // Start-up is inside the guard too. A crash while opening the store or
+  // starting reminders used to be a black screen with nothing to report.
+  await CrashGuard(app: 'passenger', client: client, version: kAppVersion).run(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    final store = await Store.open();
+    CrashGuard.lang = store.lang;
+    final reminders = await Reminders.start(store);
+    final state = AppState(
+      api: PassengerApi(client),
+      store: store,
+      reminders: reminders,
+    );
+    runApp(PassengerApp(state: state));
+  });
 }
+
+/// Reported with every crash, so a bug can be tied to a release rather than to
+/// "the version that was on the phone in June".
+const kAppVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
 
 class PassengerApp extends StatefulWidget {
   const PassengerApp({super.key, required this.state});
@@ -71,6 +81,7 @@ class _PassengerAppState extends State<PassengerApp> {
   void _setLang(Lang l) {
     setState(() => _lang = l);
     widget.state.store.setLang(l);
+    CrashGuard.lang = l;
   }
 
   @override

@@ -9,8 +9,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -141,6 +143,7 @@ func (s *Server) routes() {
 	s.driverRoutes(m)
 	s.crewRoutes(m)
 	s.platformRoutes(m)
+	s.clientErrorRoutes(m)
 	s.partnerRoutes(m)
 }
 
@@ -207,19 +210,63 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rec := &statusRecorder{ResponseWriter: w, status: 200}
-	s.mux.ServeHTTP(rec, r)
 
-	s.log.Info("request",
-		"method", r.Method, "path", r.URL.Path, "status", rec.status,
-		"ms", time.Since(start).Milliseconds(), "request_id", reqID)
+	// A panic in one handler used to take the whole API down with it: a nil map
+	// on an admin screen nobody visits, and every passenger mid-checkout loses
+	// their seat hold. One request failing is a bug; one request killing the
+	// process is an outage, and they should not be the same event.
+	//
+	// The recovery is deliberately narrow. It does not pretend the request
+	// succeeded — the caller gets a 500 with the request id, which is the same
+	// id in the log line carrying the stack — and it does not swallow anything:
+	// the stack is logged at error level with the route that produced it.
+	defer func() {
+		v := recover()
+		if v == nil {
+			s.log.Info("request",
+				"method", r.Method, "path", r.URL.Path, "status", rec.status,
+				"ms", time.Since(start).Milliseconds(), "request_id", reqID)
+			return
+		}
+		s.log.Error("panic",
+			"method", r.Method, "path", r.URL.Path, "panic", fmt.Sprint(v),
+			"stack", string(debug.Stack()), "request_id", reqID,
+			"ms", time.Since(start).Milliseconds())
+		// If the handler already began writing, the status is on the wire and a
+		// second WriteHeader would only log a superfluous-call warning over the
+		// top of the real one.
+		if !rec.wrote {
+			failRef(w, http.StatusInternalServerError, "internal_error",
+				"Something went wrong at our end. Quote this reference if you contact us.",
+				reqID)
+		}
+	}()
+
+	s.mux.ServeHTTP(rec, r)
 }
 
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
+	// wrote records that a status has actually reached the client, so the panic
+	// handler above knows whether a 500 can still be sent or would just be
+	// shouting after the response has left.
+	wrote bool
 }
 
-func (r *statusRecorder) WriteHeader(c int) { r.status = c; r.ResponseWriter.WriteHeader(c) }
+func (r *statusRecorder) WriteHeader(c int) {
+	r.status = c
+	r.wrote = true
+	r.ResponseWriter.WriteHeader(c)
+}
+
+// Write marks the response as begun even when a handler never called
+// WriteHeader explicitly — net/http sends an implicit 200 on the first write,
+// and a panic after that point cannot be turned into a 500 either.
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	r.wrote = true
+	return r.ResponseWriter.Write(b)
+}
 
 // ------------------------------------------------------------------ helpers --
 

@@ -158,24 +158,39 @@ func TestSettlementDeductsOnlyTheCashTheOperatorAlreadyHas(t *testing.T) {
 func calculableSettlement(t *testing.T, ctx context.Context) string {
 	t.Helper()
 	const demoOperator = "11111111-1111-1111-1111-111111111111"
-	to := time.Now().Format("2006-01-02")
-	for span := 1; span <= 60; span++ {
-		from := time.Now().AddDate(0, 0, -span).Format("2006-01-02")
-		id, err := svc.CalculateSettlement(ctx, demoOperator, from, to)
-		if err != nil {
-			t.Fatalf("calculate settlement %s..%s: %v", from, to, err)
-		}
-		var status string
-		var items int
-		if err := pool.QueryRow(ctx, `
-			SELECT s.status, (SELECT count(*) FROM finance.settlement_items i
-			                   WHERE i.settlement_id = s.settlement_id)
-			  FROM finance.settlements s WHERE s.settlement_id = $1::uuid`,
-			id).Scan(&status, &items); err != nil {
-			t.Fatal(err)
-		}
-		if status == "CALCULATED" && items > 0 {
-			return id
+	// Both ends of the window move. Walking only the start ran out: a period
+	// this database has already taken to APPROVED is history and refuses to be
+	// recalculated, which is the point of the state machine — and after enough
+	// smoke runs every window ending today had been signed off, so this proof
+	// stopped being able to see the thing it exists to check.
+	for toBack := 0; toBack <= 3; toBack++ {
+		to := time.Now().AddDate(0, 0, -toBack).Format("2006-01-02")
+		// Widest window first. The shortest one that happens to have any lines in
+		// it is the one least likely to contain a discounted sale or an on-board
+		// one, and both proofs below refuse to pass on a window where the fault
+		// they guard against would be invisible.
+		// Up to half a year back, not sixty days. Each run of the smoke suite
+		// signs one window off for good, so a database that has been worked
+		// against for a while has no short unused window left — and every window
+		// that ends today is the only kind that contains today's sales.
+		for span := 180; span >= 1; span-- {
+			from := time.Now().AddDate(0, 0, -(toBack + span)).Format("2006-01-02")
+			id, err := svc.CalculateSettlement(ctx, demoOperator, from, to)
+			if err != nil {
+				t.Fatalf("calculate settlement %s..%s: %v", from, to, err)
+			}
+			var status string
+			var items int
+			if err := pool.QueryRow(ctx, `
+				SELECT s.status, (SELECT count(*) FROM finance.settlement_items i
+				                   WHERE i.settlement_id = s.settlement_id)
+				  FROM finance.settlements s WHERE s.settlement_id = $1::uuid`,
+				id).Scan(&status, &items); err != nil {
+				t.Fatal(err)
+			}
+			if status == "CALCULATED" && items > 0 {
+				return id
+			}
 		}
 	}
 	t.Fatal("no calculable settlement window with any bookings in it; " +

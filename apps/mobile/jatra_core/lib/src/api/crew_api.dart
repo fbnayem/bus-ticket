@@ -47,14 +47,21 @@ class CrewApi extends DiscoveryApi {
   Future<ScanVerdict> scan({
     required String clientRef,
     required String tripId,
-    required String pnr,
+    String pnr = '',
+    String qrToken = '',
     String seatNo = '',
     required String deviceRef,
   }) async {
     final body = {
       'client_ref': clientRef,
       'trip_id': tripId,
+      // A PNR is six characters somebody reads aloud, so it is upper-cased and
+      // trimmed. A QR token is a signed string — `k1.` and then base64url, in
+      // which case is significant — so it is sent exactly as it was read.
+      // Upper-casing it, which is what used to happen to everything the camera
+      // saw, turned every valid ticket into NOT_FOUND.
       'pnr': pnr.trim().toUpperCase(),
+      'qr_token': qrToken.trim(),
       'seat_no': seatNo.trim().toUpperCase(),
       'device_ref': deviceRef,
       'scanned_at': DateTime.now().toUtc().toIso8601String(),

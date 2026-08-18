@@ -35,3 +35,20 @@ vendor/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Signing keys and their passwords. NEVER commit these.
+#
+# A signing key in version control is a signing key everybody who has ever
+# cloned the repository can publish updates with, and unlike a leaked password
+# it cannot be rotated without orphaning every phone that already has the app.
+# See apps/mobile/*/android/keystore.md.
+**/key.properties
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+
+# Gradle output. The Flutter templates ignore each app's own build/ but not the
+# one Gradle writes under android/, and a release APK is 70 MB.
+apps/mobile/*/android/build/
+apps/mobile/*/android/.gradle/

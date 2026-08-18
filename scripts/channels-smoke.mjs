@@ -407,6 +407,45 @@ const scan1 = await call('/driver/scan', {
 });
 check('boarding scan marks the passenger boarded', scan1.body.result === 'BOARDED', scan1.body.message);
 
+// The camera's path, which every check above this one missed.
+//
+// A ticket's QR encodes a signed token — `k1.` and then base64url — and not a
+// PNR. The crew app read that token, upper-cased it and sent it as a PNR, so
+// every scan of a real ticket came back NOT_FOUND. Nobody saw it because the
+// suite only ever scanned by PNR and the app has a manual-entry fallback that
+// works. Two things are asserted now: the manifest carries the token a phone
+// with no signal needs to match against, and scanning it boards the passenger.
+// A different passenger from the one the PNR scan just boarded, or this would
+// prove nothing except that boarding twice is refused.
+const qrTarget = dm.passengers.find(
+  (p) => p.ticket_status === 'VALID' && p.qr_token && p.seat_no !== scanTarget.seat_no);
+check('the manifest carries the code printed on the ticket',
+  qrTarget !== undefined && /^k\d+\./.test(qrTarget.qr_token),
+  qrTarget ? qrTarget.qr_token.slice(0, 12) + '…' : 'no qr_token on any passenger');
+
+const qrScan = await call('/driver/scan', {
+  method: 'POST', token: driver.token,
+  body: {
+    client_ref: 'scan-qr-' + Date.now(), trip_id: trip.trip_id,
+    qr_token: qrTarget.qr_token, device_ref: 'HELPER-01',
+  },
+});
+check('scanning the QR on a ticket boards that passenger',
+  qrScan.body.result === 'BOARDED', `${qrScan.body.result} ${qrScan.body.message ?? ''}`);
+
+// And the mistake that hid for a release: the same token upper-cased, which is
+// what the app used to send. base64url is case-sensitive, so this is a
+// different string and must not board anybody.
+const shouted = await call('/driver/scan', {
+  method: 'POST', token: driver.token,
+  body: {
+    client_ref: 'scan-shout-' + Date.now(), trip_id: trip.trip_id,
+    qr_token: qrTarget.qr_token.toUpperCase(), device_ref: 'HELPER-01',
+  },
+});
+check('an upper-cased QR token is not a QR token',
+  shouted.body.result === 'NOT_FOUND', shouted.body.result);
+
 const dupRef = 'scan-dup-' + Date.now();
 const dup1 = await call('/driver/scan', {
   method: 'POST', token: driver.token,

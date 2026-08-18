@@ -197,7 +197,15 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request, id *staf
 		SELECT bs.seat_no, b.pnr, b.channel,
 		       COALESCE(p.full_name,''), COALESCE(bc.phone,''),
 		       COALESCE(tk.status,'NONE'), b.board_stop_seq, b.drop_stop_seq,
-		       COALESCE(fl.name,''), COALESCE(tl.name,'')
+		       COALESCE(fl.name,''), COALESCE(tl.name,''),
+		       -- The QR token travels with the manifest so a phone with no
+		       -- signal can still match a scanned code against the list it
+		       -- downloaded before departure. Without it, offline scanning only
+		       -- works for a PNR somebody types, which is the case the camera
+		       -- exists to avoid. It grants the crew nothing they do not already
+		       -- have: they are holding the manifest, and they can board anybody
+		       -- on it by name.
+		       COALESCE(tk.qr_token,'')
 		  FROM commerce.bookings b
 		  JOIN commerce.booking_seats bs ON bs.booking_id = b.booking_id
 		  LEFT JOIN commerce.booking_passengers p
@@ -223,10 +231,10 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request, id *staf
 	pax := []map[string]any{}
 	boarded := 0
 	for rows.Next() {
-		var seat, pnr, channel, name, phone, tstatus, from, to string
+		var seat, pnr, channel, name, phone, tstatus, from, to, qrToken string
 		var bseq, dseq int
 		if err := rows.Scan(&seat, &pnr, &channel, &name, &phone, &tstatus,
-			&bseq, &dseq, &from, &to); err != nil {
+			&bseq, &dseq, &from, &to, &qrToken); err != nil {
 			continue
 		}
 		if tstatus == "BOARDED" {
@@ -236,6 +244,7 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request, id *staf
 			"seat_no": seat, "pnr": pnr, "channel": channel,
 			"passenger": name, "phone": phone, "ticket_status": tstatus,
 			"board_seq": bseq, "drop_seq": dseq, "from": from, "to": to,
+			"qr_token": qrToken,
 		})
 	}
 	writeJSON(w, 200, map[string]any{

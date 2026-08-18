@@ -11,12 +11,22 @@ import 'screens/trips.dart';
 import 'session.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final store = await Store.open();
   final client = ApiClient();
-  final session = Session(api: CrewApi(client), store: store);
-  runApp(CrewApp(session: session, store: store));
+  // Everything the app does happens inside the guard, including start-up. A
+  // crash while opening the store used to be a black screen and a phone that
+  // had to be restarted; now it is a sentence and a report.
+  await CrashGuard(app: 'crew', client: client, version: kAppVersion).run(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    final store = await Store.open();
+    CrashGuard.lang = store.lang;
+    final session = Session(api: CrewApi(client), store: store);
+    runApp(CrewApp(session: session, store: store));
+  });
 }
+
+/// Reported with every crash, so a bug can be tied to a release rather than to
+/// "the version that was on the phone in June".
+const kAppVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
 
 class CrewApp extends StatefulWidget {
   const CrewApp({super.key, required this.session, required this.store});
@@ -42,6 +52,7 @@ class _CrewAppState extends State<CrewApp> {
   void _setLang(Lang l) {
     setState(() => _lang = l);
     widget.store.setLang(l);
+    CrashGuard.lang = l;
   }
 
   @override
