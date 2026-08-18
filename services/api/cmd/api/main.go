@@ -53,6 +53,20 @@ func main() {
 	redisAddr := env("REDIS_ADDR", "localhost:56390")
 	horizon, _ := strconv.Atoi(env("TRIP_HORIZON_DAYS", "14"))
 
+	// Secrets. In development these fall back to well-known values so the stack
+	// runs with no configuration. In production that is a forgery kit: the QR
+	// signing key opens every door, the webhook secret confirms any payment, the
+	// intent secret authorises any charge. So when APP_ENV=production, a secret
+	// left at its dev default is a refusal to start, not a warning to ignore —
+	// the one failure mode that must never reach a passenger is the one nobody
+	// noticed. The check is fail-closed and it is here, before anything binds a
+	// port, so a misconfigured deploy dies loudly at boot rather than quietly
+	// serving forgeable tokens.
+	production := env("APP_ENV", "development") == "production"
+	qrKey := requireSecret(log, production, "QR_SIGNING_KEY", "dev-qr-signing-key-v1")
+	hookSecret := requireSecret(log, production, "WEBHOOK_SECRET", "provider-webhook-secret")
+	intentSecret := requireSecret(log, production, "PAYMENT_INTENT_SECRET", "sandbox-intent-secret")
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -93,9 +107,7 @@ func main() {
 	}
 
 	inv := inventory.New(pool)
-	com := commerce.New(pool, inv,
-		[]byte(env("QR_SIGNING_KEY", "dev-qr-signing-key-v1")),
-		[]byte(env("WEBHOOK_SECRET", "provider-webhook-secret")))
+	com := commerce.New(pool, inv, qrKey, hookSecret)
 	stf := staff.New(pool)
 	wal := wallet.New(pool)
 
@@ -184,7 +196,7 @@ func main() {
 			Pool: pool, Inventory: inv, Commerce: com, Staff: stf, Wallet: wal,
 			Identity: ident, Search: idx, Notify: ntf, Events: bus, Wire: wire,
 			Analytics: stats, Ops: occ, Partner: prt, Promo: prm, Risk: rsk,
-			Recon: rcn, Cache: redis, Log: log,
+			Recon: rcn, Cache: redis, Log: log, IntentSecret: intentSecret,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -269,4 +281,23 @@ func env(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// requireSecret returns the configured secret, and in production refuses to
+// return a dev default. A secret left unset or at its shipped placeholder is
+// not a warning to log and carry on from — it is a forgeable token generator,
+// so the process exits here, at boot, before it can bind a port and start
+// signing anything. In development the default is returned as-is so the stack
+// runs with no setup.
+func requireSecret(log *slog.Logger, production bool, key, devDefault string) []byte {
+	v := os.Getenv(key)
+	if production && (v == "" || v == devDefault) {
+		log.Error("refusing to start: secret is unset or at its development default in production",
+			"key", key)
+		os.Exit(1)
+	}
+	if v == "" {
+		v = devDefault
+	}
+	return []byte(v)
 }

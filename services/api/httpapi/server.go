@@ -59,6 +59,10 @@ type Deps struct {
 	Recon     *recon.Service
 	Cache     *cache.Client
 	Log       *slog.Logger
+	// IntentSecret signs hosted-checkout payment intents. Empty falls back to a
+	// dev default; production supplies a real one and main refuses to start
+	// without it.
+	IntentSecret []byte
 }
 
 type Server struct {
@@ -81,6 +85,11 @@ type Server struct {
 	cache *cache.Client
 	log   *slog.Logger
 	mux   *http.ServeMux
+
+	// intentSec signs the payment intent that travels through the browser. Set
+	// from config so it is never a constant compiled into the binary; falls
+	// back to a dev value only when nothing is supplied.
+	intentSec []byte
 }
 
 func NewServer(d Deps) *Server {
@@ -89,6 +98,7 @@ func NewServer(d Deps) *Server {
 		ident: d.Identity, idx: d.Search, ntf: d.Notify, bus: d.Events, wire: d.Wire,
 		stats: d.Analytics, occ: d.Ops, prt: d.Partner, promo: d.Promo, risk: d.Risk,
 		recon: d.Recon, cache: d.Cache, log: d.Log, mux: http.NewServeMux(),
+		intentSec: d.IntentSecret,
 	}
 	s.routes()
 	return s

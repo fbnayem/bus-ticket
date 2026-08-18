@@ -40,7 +40,12 @@ type signedIntent struct {
 	Sig       string `json:"sig"`
 }
 
-func (s *Server) intentSecret() []byte { return []byte("sandbox-intent-secret") }
+func (s *Server) intentSecret() []byte {
+	if len(s.intentSec) > 0 {
+		return s.intentSec
+	}
+	return []byte("sandbox-intent-secret")
+}
 
 func (s *Server) signIntent(i signedIntent) string {
 	mac := hmac.New(sha256.New, s.intentSecret())
