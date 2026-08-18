@@ -98,23 +98,22 @@ class _PnlScreenState extends State<PnlScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 32),
       children: [
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          childAspectRatio: 2.4,
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          children: [
-            Stat(label: l('own.pnl.ticketSales'), value: taka(t.gross)),
-            Stat(label: l('own.pnl.netFare'), value: taka(t.netFare)),
-            Stat(label: l('own.pnl.costs'), value: taka(t.costs)),
-            Stat(
-              label: t.profit < 0 ? l('own.pnl.loss') : l('own.pnl.profit'),
-              value: '${t.profit < 0 ? '−' : ''}${taka(t.profit.abs())}',
-              tone: t.profit < 0 ? J.danger : J.ok,
-            ),
-          ],
+        // Two rows of two, each tile sized to its own content. A fixed-aspect
+        // grid clipped these headline numbers in Bangla — the taller script and
+        // a six-figure taka value together overran the tile — so the height is
+        // left to the content and the value scales down if it must.
+        _statRow(
+          Stat(label: l('own.pnl.ticketSales'), value: taka(t.gross)),
+          Stat(label: l('own.pnl.netFare'), value: taka(t.netFare)),
+        ),
+        const SizedBox(height: 10),
+        _statRow(
+          Stat(label: l('own.pnl.costs'), value: taka(t.costs)),
+          Stat(
+            label: t.profit < 0 ? l('own.pnl.loss') : l('own.pnl.profit'),
+            value: '${t.profit < 0 ? '−' : ''}${taka(t.profit.abs())}',
+            tone: t.profit < 0 ? J.danger : J.ok,
+          ),
         ),
         const SizedBox(height: 16),
         for (final b in p.buses) _busCard(l, b),
@@ -131,6 +130,19 @@ class _PnlScreenState extends State<PnlScreen> {
       ],
     );
   }
+
+  // Two equal-height tiles side by side. IntrinsicHeight keeps the shorter one
+  // matched to the taller so the pair reads as a row, not two ragged boxes.
+  Widget _statRow(Widget left, Widget right) => IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: left),
+            const SizedBox(width: 10),
+            Expanded(child: right),
+          ],
+        ),
+      );
 
   Widget _busCard(L l, BusPnl b) {
     return Container(

@@ -87,9 +87,16 @@ class Stat extends StatelessWidget {
         children: [
           Text(label, style: const TextStyle(color: J.muted, fontSize: 12)),
           const SizedBox(height: 4),
-          Text(value,
-              style: TextStyle(
-                  fontSize: 20, fontWeight: FontWeight.w700, color: tone ?? J.ink)),
+          // scaleDown, left-aligned: a six-figure taka value shrinks to fit the
+          // tile rather than clipping or forcing the tile taller than its pair.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(value,
+                maxLines: 1,
+                style: TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.w700, color: tone ?? J.ink)),
+          ),
         ],
       ),
     );
