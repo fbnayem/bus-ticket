@@ -114,6 +114,9 @@ export const APPS: Record<string, AppDef> = {
       { href: '/operator/staff', label: 'Staff & roles', perm: 'staff.read' },
       { href: '/operator/settlements', label: 'Settlements', perm: 'settlement.read' },
       { href: '/operator/reports', label: 'Reports', perm: 'report.read' },
+      { href: '/operator/pnl', label: 'Profit & loss', perm: 'owner.pnl' },
+      { href: '/operator/sales-by-staff', label: 'Sales by staff', perm: 'owner.pnl' },
+      { href: '/operator/costs', label: 'Running costs', perm: 'owner.costs' },
     ],
   },
   admin: {

@@ -138,6 +138,7 @@ func (s *Server) routes() {
 	s.counterRoutes(m)
 	s.agentRoutes(m)
 	s.operatorRoutes(m)
+	s.ownerRoutes(m)
 	s.adminRoutes(m)
 	s.helpdeskRoutes(m)
 	s.driverRoutes(m)
