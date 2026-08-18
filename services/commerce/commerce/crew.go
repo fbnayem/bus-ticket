@@ -54,12 +54,17 @@ func MaxCrewDiscount(full int64) int64 {
 // Expressing the operator leg as (gross - platform) rather than recomputing it
 // makes the journal balance by construction: whatever cash came in is exactly
 // what is credited out.
-func CrewPostings(full, discount int64, operatorID, dutyID string) []Posting {
+//
+// The cash leg is keyed by the crew member, not by their cash bag. A bag is
+// optional — see 021 — and a person is not: whoever took the money was signed
+// in when they took it. Keying the account one way keeps "how much cash is in
+// whose pocket right now" a single GROUP BY.
+func CrewPostings(full, discount int64, operatorID, staffID string) []Posting {
 	base := full - platformServiceFee
 	gross := full - discount
 	platform := base/10 + platformServiceFee
 	return []Posting{
-		{"1002", "DR", gross, dutyID},              // Cash in Transit — Crew
+		{"1002", "DR", gross, staffID},             // Cash in Transit — Crew
 		{"4101", "CR", platform, ""},               // Platform Revenue, untouched
 		{"2101", "CR", gross - platform, operatorID}, // Operator Payable
 	}
@@ -211,16 +216,19 @@ func (s *Service) SettleCrewSale(ctx context.Context, bookingID, dutyID, staffID
 		return out, err
 	}
 	if err := s.Finalise(ctx, bookingID, "on-board cash sale",
-		CrewPostings(full, discount, operatorID, dutyID)); err != nil {
+		CrewPostings(full, discount, operatorID, staffID)); err != nil {
 		return out, err
 	}
 
-	// Cash physically entering the bag, against the duty it belongs to. This is
-	// what the end-of-duty count is compared with.
+	// Cash physically entering somebody's pocket. Always against the person;
+	// against a bag as well when one happens to be open, which is what an
+	// end-of-duty count is later compared with. A sale made with no bag open is
+	// still fully attributed — it simply has nothing to be counted against.
 	if _, err := s.pool.Exec(ctx, `
-		INSERT INTO crew.cash_transactions (duty_id, trip_id, kind, booking_id, amount_poisha, note)
-		VALUES ($1::uuid, $2::uuid, 'SALE', $3::uuid, $4, 'on-board sale')`,
-		dutyID, tripID, bookingID, out.GrossPoisha); err != nil {
+		INSERT INTO crew.cash_transactions
+			(staff_id, duty_id, trip_id, kind, booking_id, amount_poisha, note)
+		VALUES ($1::uuid, NULLIF($2,'')::uuid, $3::uuid, 'SALE', $4::uuid, $5, 'on-board sale')`,
+		staffID, dutyID, tripID, bookingID, out.GrossPoisha); err != nil {
 		return out, err
 	}
 
@@ -410,9 +418,9 @@ func (s *Service) CloseDuty(ctx context.Context, dutyID, staffID string, counted
 
 	if variance != 0 {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO crew.cash_transactions (duty_id, kind, amount_poisha, note)
-			VALUES ($1::uuid, 'WRITEDOWN', $2, 'duty close variance')`,
-			dutyID, variance); err != nil {
+			INSERT INTO crew.cash_transactions (staff_id, duty_id, kind, amount_poisha, note)
+			VALUES ($1::uuid, $2::uuid, 'WRITEDOWN', $3, 'duty close variance')`,
+			staffID, dutyID, variance); err != nil {
 			return 0, 0, "", err
 		}
 		var journalID string
@@ -429,10 +437,15 @@ func (s *Service) CloseDuty(ctx context.Context, dutyID, staffID string, counted
 		} else {
 			drSide, crSide = "CR", "DR"
 		}
-		for _, e := range []struct{ acct, side string }{{"5301", drSide}, {"1002", crSide}} {
+		// The party differs per account on purpose: 1002 is keyed by the person
+		// holding the cash everywhere it is touched (see CrewPostings), while
+		// the variance itself belongs to the bag that was counted.
+		for _, e := range []struct{ acct, side, party string }{
+			{"5301", drSide, dutyID}, {"1002", crSide, staffID},
+		} {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO finance.ledger_entries (journal_id, account_code, side, amount_poisha, party_ref)
-				VALUES ($1::uuid,$2,$3,$4,$5)`, journalID, e.acct, e.side, amount, dutyID); err != nil {
+				VALUES ($1::uuid,$2,$3,$4,$5)`, journalID, e.acct, e.side, amount, e.party); err != nil {
 				return 0, 0, "", err
 			}
 		}

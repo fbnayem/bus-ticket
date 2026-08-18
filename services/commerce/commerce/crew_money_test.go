@@ -81,7 +81,7 @@ func TestCrewMoneySplit(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			sale := CrewPostings(full, c.discount, "op", "duty")
+			sale := CrewPostings(full, c.discount, "op", "staff")
 			assertBalanced(t, "sale", sale)
 
 			gross, forfeit, net := CrewCommission(rule, base, c.discount)
@@ -113,7 +113,7 @@ func TestCrewMoneySplit(t *testing.T) {
 			//    what the discount really cost the operator.
 			opSale := leg(t, sale, "2101")             // credited on the sale
 			opBack := leg(t, comm, "2101")             // handed back
-			noDiscount := leg(t, CrewPostings(full, 0, "op", "duty"), "2101")
+			noDiscount := leg(t, CrewPostings(full, 0, "op", "staff"), "2101")
 			hit := noDiscount - (opSale + opBack)
 			if hit != c.wantOperatorHit {
 				t.Errorf("discount cost the operator %d, want %d", hit, c.wantOperatorHit)
@@ -141,7 +141,7 @@ func TestCrewMoneyAtTheCeiling(t *testing.T) {
 		t.Fatalf("ceiling %d is not the operator's share", ceiling)
 	}
 
-	sale := CrewPostings(full, ceiling, "op", "duty")
+	sale := CrewPostings(full, ceiling, "op", "staff")
 	assertBalanced(t, "sale", sale)
 	if op := leg(t, sale, "2101"); op != 0 {
 		t.Errorf("at the ceiling the operator should receive exactly nothing, got %d", op)
@@ -161,7 +161,7 @@ func TestCrewMoneyAtTheCeiling(t *testing.T) {
 // The API refuses long before this; the assertion is that the arithmetic itself
 // is what makes it impossible, not a rule somebody remembered to add.
 func TestCrewMoneyPastTheCeilingIsUnpostable(t *testing.T) {
-	sale := CrewPostings(full, MaxCrewDiscount(full)+1, "op", "duty")
+	sale := CrewPostings(full, MaxCrewDiscount(full)+1, "op", "staff")
 	negative := false
 	for _, p := range sale {
 		if p.Amount < 0 {
@@ -194,4 +194,26 @@ func TestCrewCommissionFlatRule(t *testing.T) {
 	if net != 0 {
 		t.Errorf("flat rule swamped by discount kept %d, want 0", net)
 	}
+}
+
+// The cash leg belongs to the person, not to their cash bag.
+//
+// A bag is optional (migration 021): a conductor signs in and sells, and only
+// reconciles against a counted bag if somebody wants one. The person is the
+// invariant, so 1002 Cash in Transit is keyed by staff everywhere it is
+// touched. If this ever reverts to a duty id, the account holds two kinds of
+// party at once and "how much cash is in whose pocket" stops being one query —
+// which is the whole reason the account exists.
+func TestCrewCashLegIsKeyedByThePerson(t *testing.T) {
+	sale := CrewPostings(full, 0, "operator-uuid", "staff-uuid")
+	for _, p := range sale {
+		if p.Account != "1002" {
+			continue
+		}
+		if p.Party != "staff-uuid" {
+			t.Fatalf("cash leg party is %q, want the staff member", p.Party)
+		}
+		return
+	}
+	t.Fatal("no 1002 cash leg in an on-board sale")
 }

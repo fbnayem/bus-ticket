@@ -665,8 +665,17 @@ class CrewPeriod {
       : salesCount = _int(j?['sales_count']),
         grossPoisha = _int(j?['gross_poisha']),
         discountPoisha = _int(j?['discount_poisha']),
-        commissionPoisha = _int(j?['commission_poisha']);
+        commissionPoisha = _int(j?['commission_poisha']),
+        handoverPoisha = _int(j?['handover_poisha']);
   final int salesCount, grossPoisha, discountPoisha, commissionPoisha;
+
+  /// Cash taken this period, less the share that is theirs.
+  ///
+  /// The answer to "what do I owe" when no cash bag is being counted. With a
+  /// bag open, [DutySummary.remitPoisha] is the better answer because it also
+  /// knows the opening float; without one, this is bounded by the period rather
+  /// than accumulating forever.
+  final int handoverPoisha;
 }
 
 /// One bus run, with its own numbers, sealed when that run ended.

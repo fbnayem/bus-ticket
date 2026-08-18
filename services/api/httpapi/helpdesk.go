@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/busticket/platform/services/staff/staff"
@@ -357,13 +358,23 @@ func (s *Server) handleCreateCase(w http.ResponseWriter, r *http.Request, id *st
 }
 
 func (s *Server) handleListCases(w http.ResponseWriter, r *http.Request, _ *staff.Identity) {
+	// The default view is open cases first, sixty at a time. That is the right
+	// queue to land on and the wrong way to find one case: a resolved case sorts
+	// behind every open one, so once sixty are open it drops off the end and an
+	// agent cannot find the case they closed five minutes ago. q is the way back
+	// to a specific case by its reference or its PNR.
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	rows, err := s.pool.Query(r.Context(), `
 		SELECT c.case_id::text, c.reference, COALESCE(c.pnr,''), c.subject, c.category,
 		       c.priority, c.status, c.created_at, COALESCE(u.full_name,''),
 		       (SELECT count(*) FROM support.case_notes n WHERE n.case_id = c.case_id)
 		  FROM support.cases c
 		  LEFT JOIN staff.staff_users u ON u.staff_id = c.assigned_to
-		 ORDER BY (c.status IN ('RESOLVED','CLOSED')), c.created_at DESC LIMIT 60`)
+		 WHERE $1 = ''
+		    OR c.reference ILIKE '%' || $1 || '%'
+		    OR c.pnr        ILIKE '%' || $1 || '%'
+		    OR c.subject    ILIKE '%' || $1 || '%'
+		 ORDER BY (c.status IN ('RESOLVED','CLOSED')), c.created_at DESC LIMIT 60`, q)
 	if err != nil {
 		fail(w, 500, "query_failed", "Could not load cases.")
 		return

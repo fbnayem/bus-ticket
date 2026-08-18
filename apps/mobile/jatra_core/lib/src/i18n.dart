@@ -563,8 +563,8 @@ const Map<String, Str> kStrings = {
   'sl.sold': Str('Ticket issued', 'টিকিট দেওয়া হয়েছে'),
   'sl.collect': Str('Collect', 'নিন'),
   'sl.another': Str('Sell another', 'আরেকটি বিক্রি'),
-  'sl.needDuty': Str('Open a duty before taking cash.',
-      'টাকা নেওয়ার আগে ডিউটি চালু করুন।'),
+  'sl.noDutyOk': Str('No duty is open. Sales still count as yours.',
+      'কোনো ডিউটি চালু নেই। বিক্রি আপনার নামেই জমা হবে।'),
   'sl.seatGone': Str('One of those seats has just gone.',
       'ওই আসনগুলোর একটি এইমাত্র চলে গেছে।'),
 
@@ -578,11 +578,11 @@ const Map<String, Str> kStrings = {
   // Money
   'mn.title': Str('Money', 'হিসাব'),
   'mn.duty': Str('Duty', 'ডিউটি'),
-  'mn.noDuty': Str('No duty is open.', 'কোনো ডিউটি চালু নেই।'),
+  'mn.todayHandover': Str("Today's money", 'আজকের হিসাব'),
   'mn.openDuty': Str('Open a duty', 'ডিউটি চালু করুন'),
   'mn.openDutyWhy': Str(
-      'A duty is the bag your cash goes into. Open it before you sell, and count it at the end.',
-      'ডিউটি হলো সেই থলি যেখানে আপনার টাকা জমা হয়। বিক্রির আগে চালু করুন, শেষে গুনে নিন।'),
+      'A duty lets you count the notes in your hand against this figure. Selling does not need one.',
+      'ডিউটি চালু করলে হাতের টাকা এই হিসাবের সাথে গুনে মেলাতে পারবেন। বিক্রির জন্য এটি লাগে না।'),
   'mn.float': Str('Cash you start with', 'শুরুতে হাতে থাকা টাকা'),
   'mn.closeDuty': Str('Close the duty', 'ডিউটি শেষ করুন'),
   'mn.count': Str('Count the cash', 'টাকা গুনুন'),

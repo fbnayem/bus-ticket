@@ -137,25 +137,37 @@ class _MoneyScreenState extends State<MoneyScreen> {
         child: Text(s, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
       );
 
-  /// The open bag, or the invitation to open one.
+  /// The open bag, or — when there is none — the same three lines computed for
+  /// today, which is the question a conductor is actually asking.
+  ///
+  /// A cash bag is optional. Showing an empty invitation here would have meant
+  /// somebody who never opens one is told nothing about their own money, when
+  /// the platform knows exactly what they sold and exactly what is theirs. The
+  /// bag adds the opening float, pay-ins and a physical count on top; without
+  /// it the day is the honest boundary, and it is labelled as the day.
   Widget _dutyCard(L l) {
     final open = _open;
     if (open == null) {
+      final today = _report?.today;
       return Card(
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(l('mn.noDuty'),
+              Text(l('mn.todayHandover'),
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 6),
+              const SizedBox(height: 14),
+              _row(l('mn.taken'), taka(today?.grossPoisha ?? 0)),
+              _row('- ${l('mn.commission')}', taka(today?.commissionPoisha ?? 0), tone: J.ok),
+              const Divider(height: 20),
+              _row(l('mn.handOver'), taka(today?.handoverPoisha ?? 0), strong: true),
+              const SizedBox(height: 12),
               Text(l('mn.openDutyWhy'),
                   style: const TextStyle(color: J.muted, fontSize: 13.5, height: 1.4)),
-              const SizedBox(height: 14),
-              FilledButton(
+              const SizedBox(height: 12),
+              OutlinedButton(
                 onPressed: _openDuty,
-                style: FilledButton.styleFrom(backgroundColor: J.crew),
                 child: Text(l('mn.openDuty')),
               ),
             ],

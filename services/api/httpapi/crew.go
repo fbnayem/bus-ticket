@@ -386,20 +386,26 @@ func (s *Server) handleCrewSale(w http.ResponseWriter, r *http.Request, id *staf
 		return
 	}
 
-	// Cash may only be taken into an open bag. Without this, money collected on
-	// a bus has nowhere to be counted at the end of the day. The ownership
-	// clause is what stops a duty id belonging to somebody else being used.
+	// A cash bag is optional. The sale is attributed to the person signed in
+	// either way — that is the fact that is always true, and it is why the
+	// report, the commission and the cash leg are all keyed by staff_id.
+	//
+	// A bag, when one is open, is picked up automatically and the sale drops
+	// into it so the end-of-duty count has something to compare against. What
+	// is still refused is a bag id belonging to somebody else: sales are
+	// optional to group, never optional to attribute.
 	if req.DutyID == "" {
 		req.DutyID = s.openDutyOf(r, id.StaffID)
-	}
-	var owns bool
-	_ = s.pool.QueryRow(ctx, `
-		SELECT true FROM crew.duties
-		 WHERE duty_id = NULLIF($1,'')::uuid AND staff_id = $2::uuid AND status = 'OPEN'`,
-		req.DutyID, id.StaffID).Scan(&owns)
-	if !owns {
-		fail(w, 409, "duty_required", "Open a duty before taking cash.")
-		return
+	} else {
+		var owns bool
+		_ = s.pool.QueryRow(ctx, `
+			SELECT true FROM crew.duties
+			 WHERE duty_id = $1::uuid AND staff_id = $2::uuid AND status = 'OPEN'`,
+			req.DutyID, id.StaffID).Scan(&owns)
+		if !owns {
+			fail(w, 403, "duty_not_yours", "That cash bag is not yours, or is already closed.")
+			return
+		}
 	}
 
 	// A conductor sells on their own company buses and no others.
@@ -457,11 +463,18 @@ func (s *Server) handleCrewSale(w http.ResponseWriter, r *http.Request, id *staf
 	}
 	total := full - discount
 
+	// A hold is traceable to the bag when there is one and to the person when
+	// there is not; it is never traceable to nothing.
+	sessionRef := req.DutyID
+	if sessionRef == "" {
+		sessionRef = id.StaffID
+	}
+
 	// The one and only seat acquisition path.
 	hold, err := s.inv.AcquireHold(ctx, inventory.HoldRequest{
 		TripID: req.TripID, Seats: req.Seats,
 		BoardSeq: req.BoardSeq, DropSeq: req.DropSeq,
-		Channel: "ONBOARD", SessionRef: req.DutyID, TTL: 5 * time.Minute,
+		Channel: "ONBOARD", SessionRef: sessionRef, TTL: 5 * time.Minute,
 		PriceSnapshot: []byte(fmt.Sprintf(
 			`{"fare_poisha":%d,"seats":%d,"discount_poisha":%d,"total_poisha":%d}`,
 			fare, len(req.Seats), discount, total)),
@@ -494,7 +507,7 @@ func (s *Server) handleCrewSale(w http.ResponseWriter, r *http.Request, id *staf
 	// because the crew report and any settlement dispute need to sum it.
 	if _, err := s.pool.Exec(ctx, `
 		UPDATE commerce.bookings
-		   SET discount_poisha = $2, discount_reason = NULLIF($3,''), duty_id = $4::uuid
+		   SET discount_poisha = $2, discount_reason = NULLIF($3,''), duty_id = NULLIF($4,'')::uuid
 		 WHERE booking_id = $1::uuid`,
 		bookingID, discount, req.DiscountReason, req.DutyID); err != nil {
 		s.log.Error("crew discount write", "err", err)
@@ -606,6 +619,13 @@ func (s *Server) handleCrewReport(w http.ResponseWriter, r *http.Request, id *st
 		return map[string]any{
 			"sales_count": sales, "gross_poisha": gross,
 			"discount_poisha": discount, "commission_poisha": commission,
+			// What is owed for this period if no bag is being counted: the cash
+			// taken, less the share that is theirs. With a bag open the duty
+			// summary below is the better answer because it also knows about
+			// the opening float and any pay-ins; without one, this is the
+			// honest figure and it is bounded by the period rather than
+			// accumulating since the beginning of time.
+			"handover_poisha": gross - commission,
 		}
 	}
 
@@ -621,15 +641,28 @@ func (s *Server) handleCrewReport(w http.ResponseWriter, r *http.Request, id *st
 
 	// Per trip: the other half of the answer, so a dispute about the 22:00 run
 	// is answered with that run's numbers rather than the day's.
+	//
+	// Derived from the sales themselves rather than read out of duty_trips.
+	// The sealed snapshot is the same arithmetic over the same rows — see
+	// CloseDutyTrip — but it only exists for runs that happened inside a cash
+	// bag, and a bag is optional now. Deriving is strictly more available and
+	// cannot disagree with the sales list next to it. closed_at is still read
+	// from the snapshot, because "sealed" is the one fact the sales do not
+	// carry themselves.
 	trips := []map[string]any{}
 	rows, err := s.pool.Query(ctx, `
-		SELECT dt.trip_id::text, r.name, t.depart_at, dt.sales_count,
-		       dt.gross_poisha, dt.discount_poisha, dt.commission_poisha, dt.closed_at
-		  FROM crew.duty_trips dt
-		  JOIN crew.duties d ON d.duty_id = dt.duty_id
-		  JOIN catalog.trips t ON t.trip_id = dt.trip_id
+		SELECT b.trip_id::text, r.name, t.depart_at, count(*),
+		       COALESCE(sum(b.total_poisha),0), COALESCE(sum(b.discount_poisha),0),
+		       COALESCE(sum((SELECT c.amount_poisha FROM crew.commissions c
+		                      WHERE c.booking_id = b.booking_id)), 0),
+		       max(dt.closed_at)
+		  FROM commerce.bookings b
+		  JOIN catalog.trips t ON t.trip_id = b.trip_id
 		  JOIN catalog.routes r ON r.route_id = t.route_id
-		 WHERE d.staff_id = $1::uuid
+		  LEFT JOIN crew.duty_trips dt
+		         ON dt.trip_id = b.trip_id AND dt.duty_id = b.duty_id
+		 WHERE b.sold_by = $1::uuid AND b.channel = 'ONBOARD'
+		 GROUP BY b.trip_id, r.name, t.depart_at
 		 ORDER BY t.depart_at DESC LIMIT 20`, id.StaffID)
 	if err == nil {
 		defer rows.Close()

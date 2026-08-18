@@ -91,9 +91,11 @@ MockClient _platform(Sent sent, {bool onDuty = true, bool mayDiscount = true}) =
       if (p.endsWith('/crew/report')) {
         return _json({
           'today': {'sales_count': 3, 'gross_poisha': 348000,
-                    'discount_poisha': 12000, 'commission_poisha': 9500},
+                    'discount_poisha': 12000, 'commission_poisha': 9500,
+                    'handover_poisha': 338500},
           'week': {'sales_count': 9, 'gross_poisha': 900000,
-                   'discount_poisha': 20000, 'commission_poisha': 30000},
+                   'discount_poisha': 20000, 'commission_poisha': 30000,
+                   'handover_poisha': 870000},
           'duty': onDuty
               ? {
                   'duty_id': 'duty-1', 'opening_float_poisha': 100000,
@@ -142,6 +144,14 @@ MockClient _platform(Sent sent, {bool onDuty = true, bool mayDiscount = true}) =
              'from': 'Cumilla', 'to': 'Chattogram'},
           ],
         });
+      }
+      if (p.endsWith('/crew/sales') && req.method == 'POST') {
+        return _json({
+          'booking_id': 'b-1', 'pnr': 'ABC123', 'seats': ['A1'],
+          'full_poisha': 85000, 'discount_poisha': 0, 'total_poisha': 85000,
+          'commission_poisha': 4000, 'forfeit_poisha': 0,
+          'tickets': [],
+        }, 201);
       }
       if (p.endsWith('/staff/sessions')) return _json({'sessions': []});
       if (p.endsWith('/staff/login') || p.endsWith('/staff/me')) {
@@ -351,6 +361,25 @@ void main() {
     expect(find.text(taka(438500)), findsWidgets, reason: 'what the owner gets');
   });
 
+  // Somebody who never opens a bag is not somebody the platform knows nothing
+  // about. It knows exactly what they sold and exactly what is theirs, so the
+  // same three lines are shown for the day — labelled as the day, because
+  // without a bag there is no float and no counted total to bound them.
+  testWidgets('with no duty open the money tab still says what is owed today',
+      (tester) async {
+    tallWindow(tester);
+    final (session, _, _) = await _rig(onDuty: false);
+    await tester.pumpWidget(_wrap(session, const MoneyScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l('mn.todayHandover')), findsOneWidget);
+    expect(find.text(l('mn.handOver')), findsOneWidget);
+    expect(find.text(taka(338500)), findsWidgets,
+        reason: 'cash taken today less the commission that is theirs');
+    // And the way to get a counted bag is still one tap away.
+    expect(find.text(l('mn.openDuty')), findsOneWidget);
+  });
+
   testWidgets('the remittance really is the difference of the two lines above it',
       (tester) async {
     tallWindow(tester);
@@ -445,15 +474,48 @@ void main() {
 
   // ------------------------------------------------------ not selling blind --
 
-  testWidgets('no open duty is said plainly before anyone tries to sell',
+  // A duty is a reconciliation session, not a licence to sell. It used to be
+  // required, which had the invariant backwards: the person signed in is who
+  // the sale belongs to, and that is true whether or not anybody intends to
+  // count a bag afterwards. These two say the note is a note.
+
+  testWidgets('with no duty open the sell screen says so without blocking anything',
       (tester) async {
     tallWindow(tester);
     final (session, _, _) = await _rig(onDuty: false);
     await tester.pumpWidget(_wrap(session, const SellScreen()));
     await tester.pumpAndSettle();
 
-    expect(find.text(l('sl.needDuty')), findsOneWidget,
-        reason: 'cash with nowhere to be counted is cash that cannot be reconciled');
+    expect(find.text(l('sl.noDutyOk')), findsOneWidget);
+    expect(find.text(l('sl.search')), findsOneWidget,
+        reason: 'the form a conductor sells through is still on screen');
+  });
+
+  // Note what this does and does not prove: the price screen never consulted
+  // the duty, so this covers the request leaving with an empty duty_id. The
+  // gate that actually said no was the server's 409, and that is proved in
+  // channels-smoke.mjs against a real database.
+  testWidgets('a sale with no duty open still leaves with an empty duty id',
+      (tester) async {
+    tallWindow(tester);
+    final (session, _, sent) = await _rig(onDuty: false);
+    final ctx = await session.api.sellContext();
+    expect(ctx.onDuty, isFalse);
+
+    await tester.pumpWidget(_wrap(
+        session, PriceScreen(trip: _trip(), ctx: ctx, seats: const ['A1'])));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).at(1), '01711000000');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l('sl.take')));
+    await tester.pumpAndSettle();
+
+    expect(sent.calls.any((c) => c.startsWith('POST') && c.endsWith('/crew/sales')),
+        isTrue);
+    final sale = sent.bodies.lastWhere((b) => b.containsKey('seats'));
+    expect(sale['duty_id'], '',
+        reason: 'the app sends no bag and lets the server pick up an open one');
   });
 
   testWidgets('selling without a phone number is refused before the request leaves',

@@ -44,7 +44,7 @@ base  = full − S                   the base BEFORE the discount
 **Sale journal** — `CrewPostings`, the same shape as `CounterPostings`:
 
 ```
-DR 1002  Cash in Transit — Crew    gross     party = duty
+DR 1002  Cash in Transit — Crew    gross     party = the crew member
 CR 4101  Platform Revenue          base/10 + S
 CR 2101  Operator Payable          gross − platform
 ```
@@ -104,6 +104,13 @@ Hand to the owner            = the first minus the second
 "Hand over ৳4,385" alone is a figure somebody has to take on trust. As a
 subtraction it is a sum a conductor can check against the notes in their hand.
 
+With no duty open the same three lines are computed **for the day** —
+`gross − commission` over today's on-board sales — and labelled as the day.
+The bag adds the opening float, any pay-ins and a physical count on top of that;
+without one, the day is the honest boundary. It is bounded on purpose: a figure
+that accumulated since the beginning of time would be arithmetically true and
+useless to hand anybody.
+
 ---
 
 ## 2 · Discount authority
@@ -135,6 +142,21 @@ indistinguishable from a conductor pocketing the difference.
 ---
 
 ## 3 · The cash bag
+
+**A bag is optional.** It was required in the first cut of this channel — no
+duty, no sale — and that had the invariant backwards. The fact that is always
+true is that whoever took the money was signed in when they took it, so the
+sale, the cash and the commission are all keyed by `staff_id` and nothing about
+attribution waits on a ceremony. A duty is a *reconciliation session* laid over
+that: worth opening when somebody wants to count notes against a figure, and
+absent otherwise. Selling does not need one.
+
+What is still refused is naming somebody else's bag — `403 duty_not_yours`.
+Optional to group, never optional to attribute.
+
+That is also why `1002 Cash in Transit — Crew` is keyed by the person rather
+than by the bag: keyed one way, "how much cash is in whose pocket right now" is
+a single `GROUP BY`, and that is the query the owner app will ask.
 
 Both halves the owner asked for:
 
@@ -329,6 +351,32 @@ different · gave ৳60 off a ৳855 fare and watched the commission line fall t
 **৳0 (ছিল ৳40)** · issued ticket **ECVUMX**, collected ৳795 · money tab showed
 ৳1,295 held, ৳0 commission, ৳1,295 to hand over · closed the bag counting ৳50
 short and got **VARIANCE**, with the trial balance still exactly zero.
+
+---
+
+## What the owner app will read
+
+The owner app does not exist yet, and this section is here so the shape it needs
+is not accidentally designed away first. What it will ask for:
+
+- **Every counter and every conductor, side by side** — who sold how many
+  tickets, for how much, and what commission each earned. All of it is already
+  one query per channel: `commerce.bookings.sold_by` for the person,
+  `crew.commissions` / `agent.commissions` for their share.
+- **What each of them is holding right now** — `1002` for crew and `1001` for
+  counter drawers, grouped by `party_ref`. This is why the party on the crew
+  cash leg is the person and not their bag: a bag is optional, so keying the
+  account by it would have left the owner's most basic question unanswerable
+  for anybody who never opened one.
+- **What the owner is owed** — `2101 Operator Payable`, already posted per sale
+  across all six channels.
+
+**Profit and loss is a different thing and needs tables that do not exist.**
+Everything above is revenue and cash position. A profit figure needs the costs
+of running a bus — crew wages, fuel, maintenance, tolls, permits, depreciation —
+and none of those are recorded anywhere in this system today. That is an
+operating-cost ledger per bus and per trip, and it is the substance of the owner
+app rather than a report over what is already here.
 
 ---
 

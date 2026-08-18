@@ -115,7 +115,7 @@ class _SellScreenState extends State<SellScreen> {
                 if (ctx != null && !ctx.maySell)
                   Nothing(title: l('sl.noDiscountRight'))
                 else ...[
-                  if (ctx != null && !ctx.onDuty) _needDuty(l),
+                  if (ctx != null && !ctx.onDuty) _noDutyNote(l),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -169,15 +169,25 @@ class _SellScreenState extends State<SellScreen> {
     );
   }
 
-  Widget _needDuty(L l) => Card(
-        color: J.warnTint,
+  /// A note, not a barrier.
+  ///
+  /// This card used to be a warning above a form that could not be used: no
+  /// duty, no selling. That had the invariant backwards. Whoever is signed in
+  /// is who the sale belongs to — the duty is an optional reconciliation on top
+  /// of that, and making it a precondition meant a conductor could not sell a
+  /// ticket until a ceremony had been performed for the benefit of a count
+  /// nobody had asked for.
+  Widget _noDutyNote(L l) => Card(
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              const Icon(Icons.account_balance_wallet_outlined, color: J.warn),
+              const Icon(Icons.account_balance_wallet_outlined, color: J.muted),
               const SizedBox(width: 10),
-              Expanded(child: Text(l('sl.needDuty'))),
+              Expanded(
+                child: Text(l('sl.noDutyOk'),
+                    style: const TextStyle(color: J.muted, fontSize: 13)),
+              ),
             ],
           ),
         ),
@@ -206,7 +216,7 @@ class _SellScreenState extends State<SellScreen> {
           ),
           isThreeLine: true,
           trailing: const Icon(Icons.chevron_right),
-          onTap: ctx == null || !ctx.onDuty
+          onTap: ctx == null
               ? null
               : () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => SeatPickScreen(trip: t, ctx: ctx),

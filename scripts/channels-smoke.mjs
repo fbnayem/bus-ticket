@@ -458,9 +458,16 @@ await call(`/helpdesk/cases/${kase.case_id}/notes`, {
 await call(`/helpdesk/cases/${kase.case_id}/status`, {
   method: 'POST', token: helpdesk.token, expect: 200, body: { status: 'RESOLVED' },
 });
-const cases = (await call('/helpdesk/cases', { token: helpdesk.token, expect: 200 })).body;
+// Looked up by reference rather than scanned out of the default queue. The
+// queue is open-cases-first and capped at sixty, so a case resolved a moment
+// ago sorts behind every open one — this suite found that by accumulating
+// sixty-one open cases across its own runs and then failing to find the case
+// it had just closed.
+const cases = (await call(`/helpdesk/cases?q=${kase.reference}`,
+  { token: helpdesk.token, expect: 200 })).body;
 check('case opened, noted and resolved',
-  cases.cases.some((c) => c.reference === kase.reference && c.status === 'RESOLVED'));
+  cases.cases.some((c) => c.reference === kase.reference && c.status === 'RESOLVED'),
+  kase.reference);
 
 // ----------------------------------------------------------------- 7. admin --
 
@@ -688,14 +695,42 @@ for (const who of [cDriver, cHelper]) {
   }
 }
 
-// A duty is the bag. Cash may not be taken without one.
-const cNoDuty = await call('/crew/sales', {
+// A cash bag is optional, and this is the case that says so.
+//
+// It used to be a 409: no duty, no sale. That had the invariant backwards. The
+// person signed in is who the money belongs to, and the platform knows that at
+// the moment of sale without any ceremony being performed first. A duty is a
+// reconciliation session laid over that — worth having when somebody wants to
+// count notes against a figure, and not a licence to trade.
+const cLoose = await call('/crew/sales', {
   method: 'POST', token: cDriver.token,
-  body: { trip_id: cTrip.trip_id, seats: ['ZZ9'], board_seq: cTrip.board_seq,
-          drop_seq: cTrip.drop_seq, phone: '+8801799000001' },
+  body: { trip_id: cTrip.trip_id, seats: [cSeats[4]],
+          board_seq: cTrip.board_seq, drop_seq: cTrip.drop_seq,
+          phone: '+8801799000009',
+          passengers: [{ seat_no: cSeats[4], full_name: 'No Bag Passenger' }] },
 });
-check('selling with no open duty is refused', cNoDuty.status === 409,
-  `${cNoDuty.status} ${cNoDuty.body?.error ?? ''}`);
+check('a sale with no duty open goes through', cLoose.status === 201,
+  `${cLoose.status} ${cLoose.body?.error ?? ''}`);
+check('and it still earns the person their commission',
+  cLoose.body?.commission_poisha > 0, taka(cLoose.body?.commission_poisha ?? 0));
+
+// Attribution is the thing that must never be optional. A bagless sale is
+// still this person's sale, and their own report is where that has to show.
+const cLooseList = await call(`/crew/sales?q=${cLoose.body?.pnr ?? ''}`,
+  { token: cDriver.token, expect: 200 });
+check('a bagless sale is on the seller own list',
+  cLooseList.body.sales.some((x) => x.pnr === cLoose.body?.pnr),
+  'the sale counts on this user information, which is the point');
+
+const cPre = await call('/crew/report', { token: cDriver.token, expect: 200 });
+check('and it is in what they owe for the day even with no bag to count',
+  cPre.body.today.handover_poisha ===
+    cPre.body.today.gross_poisha - cPre.body.today.commission_poisha &&
+  cPre.body.today.gross_poisha > 0,
+  `${taka(cPre.body.today.gross_poisha)} − ${taka(cPre.body.today.commission_poisha)} = ` +
+  taka(cPre.body.today.handover_poisha));
+check('with no bag open the report offers no duty summary rather than a wrong one',
+  cPre.body.duty === undefined || cPre.body.duty === null);
 
 const cOpen = await call('/crew/duties', {
   method: 'POST', token: cDriver.token, body: { opening_float_poisha: 100000 }, expect: 201,
@@ -799,7 +834,7 @@ const cHelperDuty = await call('/crew/duties', {
 const cHelperTry = await call('/crew/sales', {
   method: 'POST', token: cHelper.token,
   body: {
-    duty_id: cHelperDuty.body.duty_id, trip_id: cTrip.trip_id, seats: [cSeats[4]],
+    duty_id: cHelperDuty.body.duty_id, trip_id: cTrip.trip_id, seats: [cSeats[3]],
     board_seq: cTrip.board_seq, drop_seq: cTrip.drop_seq,
     phone: '+8801799000002', discount_poisha: 500, discount_reason: 'NEGOTIATED',
   },
@@ -807,6 +842,23 @@ const cHelperTry = await call('/crew/sales', {
 check('a helper is refused by the server, not merely by a hidden button',
   cHelperTry.status === 403 && cHelperTry.body.error === 'discount_not_permitted',
   `${cHelperTry.status} ${cHelperTry.body?.error ?? ''}`);
+
+// --- optional to group, never optional to attribute ---
+//
+// The bag stopped being required; it did not stop being owned. Naming somebody
+// else bag is how a conductor would drop their own cash into a colleague count.
+const cHelperBag = cHelperDuty.body?.duty_id;
+const cWrongBag = await call('/crew/sales', {
+  method: 'POST', token: cDriver.token,
+  body: { duty_id: cHelperBag ?? cDutyID, trip_id: cTrip.trip_id, seats: [cSeats[5]],
+          board_seq: cTrip.board_seq, drop_seq: cTrip.drop_seq,
+          phone: '+8801799000004' },
+});
+check('selling into somebody else bag is refused',
+  cHelperBag ? (cWrongBag.status === 403 && cWrongBag.body.error === 'duty_not_yours')
+             : true,
+  cHelperBag ? `${cWrongBag.status} ${cWrongBag.body?.error ?? ''}`
+             : 'no second bag was open to try against');
 
 // --- one crew member cannot touch another bag ---
 const cStranger = await call('/crew/duties/close', {
