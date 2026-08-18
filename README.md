@@ -92,7 +92,7 @@ docker compose run --rm -e PROOF_CONTENDERS=100000 -e PROOF_WORKERS=256 -e PROOF
 
 # API flow suites against a running API
 node scripts/smoke.mjs             # 50 checks — passenger booking and sign-in
-node scripts/channels-smoke.mjs    # 109 checks — all six staff channels
+node scripts/channels-smoke.mjs    # 112 checks — all six staff channels
 node scripts/platform-smoke.mjs    # 70 checks — backbone, notifications, search,
                                    #             promotions, reconciliation, control
                                    #             centre, partner API, risk, analytics
@@ -642,9 +642,9 @@ apps/mobile/              two Flutter applications + the package they share
                           lang-audit.mjs (every Bangla surface, working and failing)
                           place-picker.mjs (typos, Bangla input, what it submits)
 
-scripts/smoke.mjs           53-check passenger API flow
-scripts/channels-smoke.mjs  101-check staff channel API flow
-scripts/platform-smoke.mjs  71-check platform services flow
+scripts/smoke.mjs           50-check passenger API flow
+scripts/channels-smoke.mjs  112-check staff channel API flow
+scripts/platform-smoke.mjs  70-check platform services flow
 deploy/docker-compose.yml   Postgres + Redis + the proof runner
 docs/                       the 44-week plan, and the original spec verbatim
                             crew-onboard-sales.md — the conductor as a sales channel

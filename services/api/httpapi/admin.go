@@ -532,7 +532,7 @@ func (s *Server) listSettlements(r *http.Request, operatorID string) []map[strin
 		SELECT st.settlement_id::text, o.brand, st.operator_id::text,
 		       st.period_start, st.period_end, st.status,
 		       st.gross_poisha, st.commission_poisha, st.refund_poisha,
-		       st.net_payable_poisha, st.booking_count,
+		       st.cash_collected_poisha, st.net_payable_poisha, st.booking_count,
 		       COALESCE(rv.full_name,''), COALESCE(ap.full_name,''), st.paid_at,
 		       COALESCE(st.reviewed_by::text,''), COALESCE(st.approved_by::text,'')
 		  FROM finance.settlements st
@@ -559,10 +559,10 @@ func (s *Server) listSettlements(r *http.Request, operatorID string) []map[strin
 		var sid, brand, oid, status, reviewer, approver, reviewerID, approverID string
 		var start, end time.Time
 		var paid *time.Time
-		var gross, commission, refund, net int64
+		var gross, commission, refund, cash, net int64
 		var n int
 		if rows.Scan(&sid, &brand, &oid, &start, &end, &status, &gross, &commission,
-			&refund, &net, &n, &reviewer, &approver, &paid, &reviewerID, &approverID) != nil {
+			&refund, &cash, &net, &n, &reviewer, &approver, &paid, &reviewerID, &approverID) != nil {
 			continue
 		}
 		out = append(out, map[string]any{
@@ -570,6 +570,11 @@ func (s *Server) listSettlements(r *http.Request, operatorID string) []map[strin
 			"period_start": start.Format("2006-01-02"), "period_end": end.Format("2006-01-02"),
 			"status": status, "gross_poisha": gross, "commission_poisha": commission,
 			"refund_poisha": refund, "net_payable_poisha": net, "booking_count": n,
+			// What the operator's own counters and conductors already took in
+			// cash. Deducted from the payable, and shown rather than folded in:
+			// a net that is smaller than gross minus commission needs to say why
+			// on the same screen, or it looks like an error.
+			"cash_collected_poisha": cash,
 			"reviewed_by": reviewer, "approved_by": approver, "paid_at": paid,
 			// Ids as well as names, so the console can hide an approve button
 			// the server would refuse rather than offering it and failing.
@@ -673,7 +678,7 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request, 
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT b.pnr, b.channel, b.status, i.gross_poisha, i.commission_poisha,
-		       i.refund_poisha, i.net_poisha, b.created_at
+		       i.refund_poisha, i.cash_collected_poisha, i.net_poisha, b.created_at
 		  FROM finance.settlement_items i
 		  JOIN commerce.bookings b ON b.booking_id = i.booking_id
 		 WHERE i.settlement_id = $1::uuid
@@ -686,15 +691,16 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request, 
 	items := []map[string]any{}
 	for rows.Next() {
 		var pnr, channel, status string
-		var gross, commission, refund, net int64
+		var gross, commission, refund, cash, net int64
 		var at time.Time
-		if rows.Scan(&pnr, &channel, &status, &gross, &commission, &refund, &net, &at) != nil {
+		if rows.Scan(&pnr, &channel, &status, &gross, &commission, &refund, &cash, &net, &at) != nil {
 			continue
 		}
 		items = append(items, map[string]any{
 			"pnr": pnr, "channel": channel, "status": status,
 			"gross_poisha": gross, "commission_poisha": commission,
-			"refund_poisha": refund, "net_poisha": net, "created_at": at,
+			"refund_poisha": refund, "cash_collected_poisha": cash,
+			"net_poisha": net, "created_at": at,
 		})
 	}
 	writeJSON(w, 200, map[string]any{

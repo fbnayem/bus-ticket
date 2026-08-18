@@ -14,7 +14,7 @@ export interface Settlement {
   settlement_id: string; operator: string; operator_id: string;
   period_start: string; period_end: string; status: string;
   gross_poisha: number; commission_poisha: number; refund_poisha: number;
-  net_payable_poisha: number; booking_count: number;
+  cash_collected_poisha: number; net_payable_poisha: number; booking_count: number;
   reviewed_by: string; approved_by: string; paid_at: string | null;
   reviewed_by_id?: string; approved_by_id?: string;
 }
@@ -22,7 +22,8 @@ export interface Settlement {
 export interface SettlementItem {
   pnr: string; channel: string; status: string;
   gross_poisha: number; commission_poisha: number;
-  refund_poisha: number; net_poisha: number; created_at: string;
+  refund_poisha: number; cash_collected_poisha: number;
+  net_poisha: number; created_at: string;
 }
 
 const FLOW = ['OPEN', 'CALCULATED', 'REVIEWED', 'APPROVED', 'PAYMENT_INITIATED', 'PAID', 'RECONCILED'];
@@ -83,8 +84,25 @@ export function SettlementDetail({
         <dt>Gross sales</dt><dd><Money poisha={settlement.gross_poisha} decimals /></dd>
         <dt>Platform commission and fees</dt><dd>−<Money poisha={settlement.commission_poisha} decimals /></dd>
         <dt>Refunds</dt><dd>−<Money poisha={settlement.refund_poisha} decimals /></dd>
-        <dt><strong>Net payable</strong></dt>
-        <dd><strong><Money poisha={settlement.net_payable_poisha} decimals /></strong></dd>
+        {/* Shown as its own line rather than folded into the net. A payable
+            that is smaller than gross minus commission has to say why on the
+            same screen, or it reads as an error — and this is usually the
+            largest single line on it. */}
+        <dt>Cash their own counters and crew took</dt>
+        <dd>−<Money poisha={settlement.cash_collected_poisha} decimals /></dd>
+        <dt><strong>{settlement.net_payable_poisha < 0 ? 'Owed to the platform' : 'Net payable'}</strong></dt>
+        <dd><strong>
+          <Money poisha={Math.abs(settlement.net_payable_poisha)} decimals />
+        </strong></dd>
+        {settlement.net_payable_poisha < 0 && (
+          <>
+            <dt />
+            <dd className="small muted">
+              This operator collected more in cash than the platform owes them
+              for the period, so the balance runs the other way.
+            </dd>
+          </>
+        )}
         {settlement.reviewed_by && <><dt>Reviewed by</dt><dd>{settlement.reviewed_by}</dd></>}
         {settlement.approved_by && <><dt>Approved by</dt><dd>{settlement.approved_by}</dd></>}
         {settlement.paid_at && <><dt>Paid</dt><dd>{dateTimeOf(settlement.paid_at)}</dd></>}
@@ -113,7 +131,8 @@ export function SettlementDetail({
                 <tr>
                   <th>PNR</th><th>Channel</th><th>Status</th>
                   <th className="num">Gross</th><th className="num">Fee</th>
-                  <th className="num">Refund</th><th className="num">Net</th>
+                  <th className="num">Refund</th><th className="num">Cash in hand</th>
+                  <th className="num">Net</th>
                 </tr>
               </thead>
               <tbody>
@@ -125,11 +144,12 @@ export function SettlementDetail({
                     <td className="num"><Money poisha={i.gross_poisha} /></td>
                     <td className="num muted"><Money poisha={i.commission_poisha} /></td>
                     <td className="num muted">{i.refund_poisha ? <Money poisha={i.refund_poisha} /> : '—'}</td>
+                    <td className="num muted">{i.cash_collected_poisha ? <Money poisha={i.cash_collected_poisha} /> : '—'}</td>
                     <td className="num"><Money poisha={i.net_poisha} /></td>
                   </tr>
                 ))}
                 {items.length === 0 && (
-                  <tr><td colSpan={7} className="muted center">No lines in this period.</td></tr>
+                  <tr><td colSpan={8} className="muted center">No lines in this period.</td></tr>
                 )}
               </tbody>
             </table>

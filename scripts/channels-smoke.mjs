@@ -569,6 +569,26 @@ if (!sid) {
 const detail = (await call(`/admin/settlements/${sid}`, { token: finance.token, expect: 200 })).body;
 check('settlement itemises the bookings', detail.items.length > 0, `${detail.items.length} items`);
 
+// The platform does not pay out cash it never received. A counter drawer and a
+// conductor's pocket are the operator's own, so the passenger has already
+// handed them that fare; paying their share of it again is the whole amount
+// twice. Everything else — website card payments, an agency drawing on a
+// prepaid wallet — did reach the platform and is owed in full.
+const CASH_IN_HAND = ['COUNTER', 'COUNTER_OFFLINE', 'ONBOARD'];
+const cashItems = detail.items.filter((i) => CASH_IN_HAND.includes(i.channel));
+const cardItems = detail.items.filter((i) => !CASH_IN_HAND.includes(i.channel));
+check('cash the operator staff took is deducted, in full',
+  cashItems.length > 0 &&
+  cashItems.every((i) => i.cash_collected_poisha === i.gross_poisha),
+  `${cashItems.length} counter and on-board sales`);
+check('and nothing the platform actually collected is deducted',
+  cardItems.every((i) => i.cash_collected_poisha === 0),
+  `${cardItems.length} website, agent and partner sales untouched`);
+check('every line is gross less commission, refunds and cash in hand',
+  detail.items.every((i) => i.net_poisha ===
+    i.gross_poisha - i.commission_poisha - i.refund_poisha - i.cash_collected_poisha),
+  'checked per line, because two errors of opposite sign sum to nothing');
+
 // Two independent gates guard approval — an unreviewed settlement, and an open
 // reconciliation exception inside the window — and the server is free to answer
 // with whichever it checks first. This used to assert not_reviewed outright and

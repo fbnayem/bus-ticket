@@ -402,6 +402,21 @@ type Settlement struct {
 	Exceptions   int       `json:"open_exceptions"`
 }
 
+// OperatorHeldCashChannels are the channels where the operator's own staff take
+// the money, so the platform never receives it and must not pay it out again.
+//
+// A counter is the operator's counter and the drawer is in their office; a
+// conductor is their employee and the cash is in his pocket on their bus. The
+// passenger has already handed the operator the fare, and a settlement that
+// ignores that pays it a second time — not a rounding error, the whole amount.
+//
+// Everything absent from this list reached the platform: a card payment on the
+// website, an agency drawing on a prepaid wallet the platform holds, a partner
+// selling through the API. Those the platform owes in full.
+//
+// One list, one place. A new cash channel is one edit here and not two.
+var OperatorHeldCashChannels = []string{"COUNTER", "COUNTER_OFFLINE", "ONBOARD"}
+
 // CalculateSettlement recomputes an operator's payable for a period from the
 // bookings themselves. It is safe to re-run: items are replaced wholesale, so
 // a late-arriving refund is picked up on the next calculation rather than
@@ -448,11 +463,14 @@ func (s *Service) CalculateSettlement(ctx context.Context, operatorID, from, to 
 	// the same arithmetic as before everywhere else.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO finance.settlement_items
-			(settlement_id, booking_id, gross_poisha, commission_poisha, refund_poisha, net_poisha)
+			(settlement_id, booking_id, gross_poisha, commission_poisha, refund_poisha,
+			 cash_collected_poisha, net_poisha)
 		SELECT $1::uuid, b.booking_id, b.total_poisha,
 		       (((b.total_poisha + b.discount_poisha) - $4::bigint) / 10) + $4::bigint,
 		       COALESCE(r.refunded, 0),
+		       CASE WHEN b.channel = ANY($6::text[]) THEN b.total_poisha ELSE 0 END,
 		       b.total_poisha - ((((b.total_poisha + b.discount_poisha) - $4::bigint) / 10) + $4::bigint) - COALESCE(r.refunded, 0)
+		         - CASE WHEN b.channel = ANY($6::text[]) THEN b.total_poisha ELSE 0 END
 		  FROM commerce.bookings b
 		  LEFT JOIN LATERAL (
 		        SELECT COALESCE(sum(rf.amount_poisha),0) AS refunded
@@ -465,22 +483,24 @@ func (s *Service) CalculateSettlement(ctx context.Context, operatorID, from, to 
 		   AND b.status IN ('TICKETED','CONFIRMED','COMPLETED','CANCELLED','REFUNDED')
 		   AND EXISTS (SELECT 1 FROM commerce.payments p
 		                WHERE p.booking_id = b.booking_id AND p.status = 'PAID')`,
-		id, operatorID, from, int64(platformServiceFee), to); err != nil {
+		id, operatorID, from, int64(platformServiceFee), to, OperatorHeldCashChannels); err != nil {
 		return "", err
 	}
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE finance.settlements s
-		   SET gross_poisha       = t.gross,
-		       commission_poisha  = t.commission,
-		       refund_poisha      = t.refunds,
-		       net_payable_poisha = t.net,
-		       booking_count      = t.n,
-		       status             = 'CALCULATED',
-		       calculated_at      = now()
+		   SET gross_poisha          = t.gross,
+		       commission_poisha     = t.commission,
+		       refund_poisha         = t.refunds,
+		       cash_collected_poisha = t.cash,
+		       net_payable_poisha    = t.net,
+		       booking_count         = t.n,
+		       status                = 'CALCULATED',
+		       calculated_at         = now()
 		  FROM (SELECT COALESCE(sum(gross_poisha),0) gross,
 		               COALESCE(sum(commission_poisha),0) commission,
 		               COALESCE(sum(refund_poisha),0) refunds,
+		               COALESCE(sum(cash_collected_poisha),0) cash,
 		               COALESCE(sum(net_poisha),0) net,
 		               count(*) n
 		          FROM finance.settlement_items WHERE settlement_id = $1::uuid) t

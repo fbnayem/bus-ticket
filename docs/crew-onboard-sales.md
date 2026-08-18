@@ -378,6 +378,49 @@ drift would be invisible.
 
 ---
 
+## Who is holding the cash
+
+An operator's counter clerk and their conductor are their own staff, and the
+drawer and the pocket are theirs. The passenger has already handed the operator
+that fare. A settlement that pays the operator its share of it again is not a
+rounding error — it is the whole amount, twice.
+
+It was doing exactly that. Of Green Line's ৳761,840 in the demo data, ৳303,590
+was collected in cash by their own staff, and the payable was computed across
+every channel alike.
+
+**The owner's decision: the cash is the operator's from the moment their staff
+take it.** So `CalculateSettlement` deducts it, and pays only the remainder.
+
+| Channel | Who took the money | Deducted |
+|---|---|---|
+| `COUNTER`, `COUNTER_OFFLINE` | their counter, their drawer | yes |
+| `ONBOARD` | their conductor, their pocket | yes |
+| `WEB`, `APP` | the platform's payment provider | no |
+| `AGENT` | a prepaid wallet the platform holds | no |
+| `PARTNER`, `AI` | the platform | no |
+
+Where a period's commission exceeds what the platform actually collected,
+`net_payable_poisha` goes **negative and the operator owes the platform**. That
+is a real outcome for an operator selling mostly at the roadside, so the figure
+is signed rather than clamped, and the console says *Owed to the platform*
+rather than showing a negative payable and leaving somebody to work it out.
+
+The deduction is shown as its own line rather than folded into the net, because
+a payable smaller than gross minus commission has to explain itself on the same
+screen — and it is usually the largest line on it.
+
+Two proofs, and the second one exists because the first was not enough: that
+every cash-channel sale is deducted in full, and that **nothing else is**. A
+deduction that also caught website card sales would be just as wrong in the
+other direction and would look just as balanced. The list of cash channels is
+written out as a literal in the test rather than read from the code, because a
+test that asserts against the same list the code uses moves whenever the code
+moves — dropping `ONBOARD` from that variable paid every on-board sale twice
+again and the proof stayed green until it was pinned down.
+
+---
+
 ## What the owner app will read
 
 The owner app does not exist yet, and this section is here so the shape it needs
@@ -411,16 +454,11 @@ app rather than a report over what is already here.
   a new `method` value, not a new design.
 - **The QR scanner is still unverified.** The emulator has no camera; this
   branch does not change that.
-- **Nothing here nets counter or crew cash off the platform→operator
-  settlement.** `CalculateSettlement` still computes the operator's payable
-  across all channels alike, so the platform would pay out cash its own books
-  say an operator's staff already took: of Green Line's ৳761,840 in the demo
-  data, ৳303,590 — counter, offline counter and on-board — never reached the
-  platform. Fixing it is a decision about the business rather than the code:
-  either the cash is the platform's until remitted, in which case what is
-  missing is a remittance posting (nothing clears `1001`/`1002` today, so they
-  accumulate for ever), or the cash is the operator's, in which case the
-  settlement must deduct it. Both are defensible and they move real money in
-  opposite directions, so it is not a call to make quietly.
+- **`1001` and `1002` still accumulate.** Nothing posts the moment a bag or a
+  drawer is physically handed over, so the platform's books carry a cash asset
+  that only grows. Now that the settlement deducts that cash (below), no money
+  moves wrongly because of it — it is a bookkeeping presentation left undone,
+  not a payment. The posting it wants is
+  `DR 2101 Operator Payable / CR 1002 Cash in Transit` at handover.
 - Seeded local fixtures — the demo staff password, the sandbox keys — are still
   public in this repository and should be rotated before anything real.
