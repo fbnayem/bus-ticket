@@ -94,10 +94,22 @@ check('replaying an event that does not exist is refused, not silently ignored',
 // ======================================================= 2. NOTIFICATIONS ===
 console.log('\n=== 2. NOTIFICATIONS ===');
 
-const notifs = (await call('/admin/notifications?limit=50', { token: admin.token, expect: 200 })).body;
+const notifs = (await call('/admin/notifications?limit=200', { token: admin.token, expect: 200 })).body;
 check('passengers are told when a booking confirms',
   notifs.notifications.some((n) => n.event_type === 'booking.confirmed' && n.status === 'SENT'),
   `${notifs.notifications.length} recent notifications`);
+// Push had a channel, providers, preferences and templates from the first
+// release, and no address to send to — Audience carried a PushToken nothing
+// ever set, so every push was skipped for want of a recipient. A registered
+// device is that address, and this is the check that it is actually used.
+// smoke.mjs registers one; if that has not been run against this database there
+// is nothing to find, and saying so is better than a green tick.
+const pushed = notifs.notifications.find((n) => (n.attempts ?? '').includes('PUSH:'));
+check('a notification reaches a registered phone, not just a number and an inbox',
+  pushed !== undefined,
+  pushed ? `${pushed.event_type} — ${pushed.attempts}`
+         : 'no PUSH attempt found; run scripts/smoke.mjs first, which registers a device');
+
 const bangla = notifs.notifications.find((n) => n.lang === 'bn' && n.rendered);
 check('the default language is Bangla, and the message is really rendered',
   !!bangla && /[ঀ-৿]/.test(bangla.rendered),
@@ -243,10 +255,18 @@ check('matched transactions are counted', run.matched > 0, `${run.matched} match
 
 // Every exception for the date, not only the open ones: exceptions are keyed by
 // (date, kind, reference), so a rerun finds the ones a previous run resolved.
-const allExceptions = (await call('/finance/recon/exceptions',
-  { token: finance.token, expect: 200 })).body.exceptions.filter((e) => e.business_date === bizDate);
-const kinds = new Set(allExceptions.map((e) => e.kind));
-check('every seeded exception class is detected', kinds.size >= 5, [...kinds].join(', '));
+// Asked of the run itself rather than counted out of the exception list. The
+// list is capped at a screenful and one noisy class crowds the rest off the end
+// — after a busy day there were 227 MISSING_IN_GATEWAY rows and this check
+// concluded that class was the only one ever detected, which was untrue and
+// read like a regression. The run now reports what it found, by class.
+const kinds = Object.keys(run.by_kind ?? {});
+check('every seeded exception class is detected', kinds.length >= 5,
+  Object.entries(run.by_kind ?? {}).map(([k, n]) => `${k}×${n}`).join(', '));
+
+// Still fetched, because the checks below work through individual exceptions.
+const allExceptions = (await call(`/finance/recon/exceptions?date=${bizDate}`,
+  { token: finance.token, expect: 200 })).body.exceptions;
 
 const exceptions = allExceptions.filter((e) => e.status === 'OPEN' || e.status === 'INVESTIGATING');
 check('exceptions are aged for triage', exceptions.every((e) => e.age_hours >= 0),

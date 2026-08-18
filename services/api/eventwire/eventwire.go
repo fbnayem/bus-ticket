@@ -223,10 +223,34 @@ func (r *Resolver) forBooking(ctx context.Context, pnr string, payload map[strin
 		"refund":   notify.Taka(int64(num(payload["refund_poisha"]))),
 		"minutes":  str(payload["minutes"]),
 	}
-	// A push token would come from the mobile app's device registration. There
-	// is no app in this build, so PUSH simply has no address and is skipped —
-	// visibly, in the delivery log, rather than silently.
+	// Where to reach this passenger's phone, if they have one registered.
+	//
+	// The newest live device wins rather than all of them: a person who has
+	// signed in on three phones over two years gets the ticket on the one they
+	// are actually carrying, and a notification delivered three times reads as a
+	// fault. An account with no registered device leaves PushToken empty and
+	// PUSH is skipped for want of an address — visibly, in the delivery log,
+	// which is how it behaved before this table existed.
+	a.PushToken = r.pushTokenFor(ctx, userID, a.Phone)
 	return []notify.Audience{a}, nil
+}
+
+// pushTokenFor finds the most recently seen live device for a passenger.
+//
+// Matched by account when they have one and by phone number when they do not:
+// guest checkout is the default path on this platform, so the majority of
+// bookings have a number and no user id, and a guest who installed the app and
+// signed in on that number should still get their ticket.
+func (r *Resolver) pushTokenFor(ctx context.Context, userID, phone string) string {
+	var token string
+	_ = r.pool.QueryRow(ctx, `
+		SELECT token FROM notify.devices
+		 WHERE revoked_at IS NULL
+		   AND app = 'passenger'
+		   AND ((NULLIF($1,'') IS NOT NULL AND user_id = $1::uuid)
+		     OR (NULLIF($2,'') IS NOT NULL AND user_key = $2))
+		 ORDER BY last_seen_at DESC LIMIT 1`, userID, phone).Scan(&token)
+	return token
 }
 
 func (r *Resolver) forTrip(ctx context.Context, tripID string, payload map[string]any) ([]notify.Audience, error) {

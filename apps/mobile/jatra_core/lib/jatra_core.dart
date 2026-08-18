@@ -8,6 +8,7 @@ library;
 
 export 'src/api/client.dart';
 export 'src/crash.dart';
+export 'src/push.dart';
 export 'src/api/crew_api.dart';
 export 'src/api/discovery_api.dart';
 export 'src/api/passenger_api.dart';

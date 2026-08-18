@@ -180,6 +180,14 @@ type RunResult struct {
 	BankPoisha      int64  `json:"bank_poisha"`
 	ExceptionsFound int    `json:"exceptions_found"`
 	Matched         int    `json:"matched"`
+	// What went wrong, by class, for this date.
+	//
+	// A count alone says a hundred and eighty things did not reconcile; it does
+	// not say whether that is one gateway file arriving late or a hundred and
+	// eighty different faults. The exception list cannot answer it either — it
+	// is capped at a screenful, and one noisy class crowds the others off the
+	// end, which reads as "only that class was ever detected".
+	ByKind map[string]int `json:"by_kind"`
 }
 
 // Run performs the three-way match for one business date.
@@ -345,6 +353,20 @@ func (s *Service) Run(ctx context.Context, businessDate string) (*RunResult, err
 		return nil, err
 	}
 
+	res.ByKind = map[string]int{}
+	if rows, err := s.pool.Query(ctx, `
+		SELECT kind, count(*) FROM finance.recon_exceptions
+		 WHERE business_date = $1::date GROUP BY kind`, businessDate); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var kind string
+			var n int
+			if rows.Scan(&kind, &n) == nil {
+				res.ByKind[kind] = n
+			}
+		}
+	}
+
 	if err := s.pool.QueryRow(ctx, `
 		INSERT INTO finance.recon_runs
 			(business_date, platform_poisha, gateway_poisha, bank_poisha, exceptions_found)
@@ -374,7 +396,14 @@ type Exception struct {
 	Resolution   string     `json:"resolution,omitempty"`
 }
 
-func (s *Service) Exceptions(ctx context.Context, status string) ([]Exception, error) {
+// Exceptions lists what did not reconcile, newest and most urgent first.
+//
+// date narrows to one business day. Without it the caller gets the most recent
+// two hundred across all days and filters them itself — which is fine on a
+// quiet database and wrong on a busy one: a day's exceptions can be pushed off
+// the end by a later day's, and a caller looking for "what broke on Tuesday"
+// concludes only one thing did. The cap is a screenful, not an answer.
+func (s *Service) Exceptions(ctx context.Context, status, date string) ([]Exception, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT exception_id::text, business_date::text, COALESCE(provider,''), kind, reference,
 		       expected_poisha, actual_poisha, detail, status,
@@ -382,8 +411,9 @@ func (s *Service) Exceptions(ctx context.Context, status string) ([]Exception, e
 		       detected_at, resolved_at, COALESCE(resolution,'')
 		  FROM finance.recon_exceptions
 		 WHERE ($1 = '' OR status = $1)
+		   AND ($2 = '' OR business_date = $2::date)
 		 ORDER BY (status IN ('OPEN','INVESTIGATING')) DESC, detected_at DESC
-		 LIMIT 200`, status)
+		 LIMIT 200`, status, date)
 	if err != nil {
 		return nil, err
 	}

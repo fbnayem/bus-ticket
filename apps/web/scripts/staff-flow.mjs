@@ -500,10 +500,24 @@ ${OUT_OF_SEATS}
       await page.waitForTimeout(400);
       const row = page.locator('table.data tbody tr')
         .filter({ hasText: OPERATOR }).filter({ hasText: 'calculated' }).first();
-      if (await row.count()) { calcRow = row; break outerSettlement; }
+      if (!(await row.count())) continue;
+
+      // A period with an unresolved reconciliation exception in it cannot be
+      // approved — no override, deliberately — so a window carrying one is no
+      // use to a test of the approval flow. The panel says which it is, so keep
+      // looking rather than clicking approve and reporting a correct refusal as
+      // a failure. Exceptions accumulate on a database that has been worked
+      // against, and by the time this was written there were forty-nine.
+      await row.locator('button:has-text("Open")').click();
+      await page.waitForTimeout(500);
+      const blocked = await page.locator('.notice-danger', { hasText: 'unresolved exception' }).count();
+      await page.locator('button:has-text("Close")').first().click().catch(() => undefined);
+      await page.waitForTimeout(200);
+      if (blocked === 0) { calcRow = row; break outerSettlement; }
     }
   }
   check('a fresh settlement period can be calculated', calcRow !== null);
+
   const targetRow = calcRow ?? page.locator('table.data tbody tr').filter({ hasText: OPERATOR }).first();
   await targetRow.locator('button:has-text("Open")').click();
   await page.waitForSelector('.stepper', { timeout: 20000 });

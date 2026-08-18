@@ -697,11 +697,18 @@ const tb = (await call('/admin/trial-balance', { token: finance.token, expect: 2
 check('books still balance after the payout', tb.balanced === true,
   `DR ${taka(tb.total_debit_poisha)} = CR ${taka(tb.total_credit_poisha)}`);
 
-const audit = (await call('/admin/audit', { token: auditor.token, expect: 200 })).body;
-const actions = new Set(audit.entries.map((e) => e.action));
-check('audit log captured the sensitive actions',
-  ['staff.login', 'counter.sale', 'agent.sale', 'settlement.approve'].every((a) => actions.has(a)),
-  [...actions].slice(0, 8).join(', '));
+// Asked one action at a time. Reading the hundred most recent and looking for
+// four kinds in them worked until a busy settlement section filled all hundred,
+// at which point this reported that sign-ins are not audited — which was untrue
+// and is exactly the sort of false alarm that teaches people to ignore a suite.
+const wanted = ['staff.login', 'counter.sale', 'agent.sale', 'settlement.approve'];
+const missing = [];
+for (const a of wanted) {
+  const found = (await call(`/admin/audit?action=${a}`, { token: auditor.token, expect: 200 })).body;
+  if (!found.entries.some((e) => e.action === a)) missing.push(a);
+}
+check('audit log captured the sensitive actions', missing.length === 0,
+  missing.length ? `missing: ${missing.join(', ')}` : wanted.join(', '));
 
 // ------------------------------------------------------------- 8. one truth --
 }

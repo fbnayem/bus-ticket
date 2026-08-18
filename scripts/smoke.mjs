@@ -186,6 +186,56 @@ check('account history now visible', acct.status === 200 &&
 check('the guest booking was claimed by the account', verified.body.bookings_claimed >= 0,
   `${verified.body.bookings_claimed} claimed`);
 
+// ---------------------------------------------- where to reach this phone ---
+//
+// The notification service has always had a PUSH channel - providers,
+// preferences, templates, a delivery log - and never an address, because there
+// was no app when it was written. A registered device is that address.
+console.log('\n=== 14a. THIS PHONE ===');
+
+const keepBearer = bearer;
+bearer = null;
+const noAuth = await api('/devices', {
+  method: 'POST',
+  body: JSON.stringify({ token: 'local:DEV-SMOKE1', app: 'passenger', platform: 'android' }),
+});
+bearer = keepBearer;
+check('registering a device without signing in is refused',
+  noAuth.status === 401,
+  'otherwise anybody could point somebody else tickets at their own phone');
+
+const reg = await api('/devices', {
+  method: 'POST',
+  body: JSON.stringify({
+    token: 'local:DEV-SMOKE1', app: 'passenger', platform: 'android',
+    device_ref: 'DEV-SMOKE1',
+  }),
+});
+check('a signed-in phone can be registered for notifications',
+  reg.status === 200 && reg.body.registered === true, String(reg.status));
+
+// The token is the key, not the person: a handset that changes hands moves with
+// the token rather than keeping the last owner tickets coming to it.
+const again = await api('/devices', {
+  method: 'POST',
+  body: JSON.stringify({ token: 'local:DEV-SMOKE1', app: 'passenger', platform: 'android' }),
+});
+check('registering the same token twice moves it rather than duplicating it',
+  again.status === 200, String(again.status));
+
+const revoked = await api('/devices/revoke', {
+  method: 'POST', body: JSON.stringify({ token: 'local:DEV-SMOKE1' }),
+});
+check('and a phone can say stop when somebody signs out',
+  revoked.status === 200 && revoked.body.revoked === true, String(revoked.status));
+
+// Registered once more, because a revoked phone that stays revoked would make
+// every later notification in this suite address nothing.
+await api('/devices', {
+  method: 'POST',
+  body: JSON.stringify({ token: 'local:DEV-SMOKE1', app: 'passenger', platform: 'android' }),
+});
+
 console.log('\n=== 14b. PEOPLE YOU TRAVEL WITH ===');
 // The table has existed since migration 005 but nothing ever wrote to it. Every
 // row carries an NID number, so the ownership check is the point of this block

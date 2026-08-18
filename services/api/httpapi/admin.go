@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/busticket/platform/services/commerce/commerce"
@@ -318,13 +319,21 @@ func (s *Server) handleTrialBalance(w http.ResponseWriter, r *http.Request, _ *s
 }
 
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request, _ *staff.Identity) {
+	// action narrows to one kind of event.
+	//
+	// The default view is the hundred most recent, which is the right thing to
+	// land on and the wrong way to answer "was this ever recorded". A busy hour
+	// of settlements pushes every sign-in off the end, and a caller looking for
+	// one is told it never happened. The cap is a screenful, not an answer.
+	action := strings.TrimSpace(r.URL.Query().Get("action"))
 	rows, err := s.pool.Query(r.Context(), `
 		SELECT a.audit_id, COALESCE(u.full_name,'system'), COALESCE(a.actor_role,''),
 		       a.action, COALESCE(a.resource,''), a.occurred_at,
 		       COALESCE(a.after_val #>> '{}', '')
 		  FROM audit.audit_log a
 		  LEFT JOIN staff.staff_users u ON u.staff_id = a.actor_id
-		 ORDER BY a.audit_id DESC LIMIT 100`)
+		 WHERE $1 = '' OR a.action = $1
+		 ORDER BY a.audit_id DESC LIMIT 100`, action)
 	if err != nil {
 		fail(w, 500, "query_failed", "Could not load the audit log.")
 		return
@@ -575,7 +584,7 @@ func (s *Server) listSettlements(r *http.Request, operatorID string) []map[strin
 			// a net that is smaller than gross minus commission needs to say why
 			// on the same screen, or it looks like an error.
 			"cash_collected_poisha": cash,
-			"reviewed_by": reviewer, "approved_by": approver, "paid_at": paid,
+			"reviewed_by":           reviewer, "approved_by": approver, "paid_at": paid,
 			// Ids as well as names, so the console can hide an approve button
 			// the server would refuse rather than offering it and failing.
 			"reviewed_by_id": reviewerID, "approved_by_id": approverID,

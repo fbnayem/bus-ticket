@@ -561,7 +561,7 @@ func (s *Server) handleReconRuns(w http.ResponseWriter, r *http.Request, _ *staf
 }
 
 func (s *Server) handleReconExceptions(w http.ResponseWriter, r *http.Request, _ *staff.Identity) {
-	ex, err := s.recon.Exceptions(r.Context(), r.URL.Query().Get("status"))
+	ex, err := s.recon.Exceptions(r.Context(), r.URL.Query().Get("status"), r.URL.Query().Get("date"))
 	if err != nil {
 		fail(w, 500, "query_failed", "Could not load exceptions.")
 		return

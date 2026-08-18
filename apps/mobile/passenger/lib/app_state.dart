@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/widgets.dart';
 import 'package:jatra_core/jatra_core.dart';
 
@@ -94,9 +96,23 @@ class AppState extends ChangeNotifier {
     await store.saveSession(token: token, refresh: refresh, phone: phone, name: name);
     _signedIn = true;
     notifyListeners();
+    // After the session is set, so a failure to register for notifications
+    // cannot cost somebody the sign-in they just completed.
+    unawaited(devices.register(platform: _platformName()));
     // Pull in anything bought on this number from another device, so signing in
     // actually delivers what it promises.
     await pullAccountTickets();
+  }
+
+  /// Where the platform can reach this phone. See [DeviceRegistration] for what
+  /// is and is not real about it yet.
+  late final DeviceRegistration devices =
+      DeviceRegistration(api: api.c, store: store, app: 'passenger');
+
+  String _platformName() {
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isIOS) return 'ios';
+    return '';
   }
 
   /// Signs out of the account but leaves the device knowing who bought the
@@ -104,6 +120,9 @@ class AppState extends ChangeNotifier {
   /// platform on somebody's behalf; it should not make the app forget the
   /// person holding it, or their next checkout starts from an empty form.
   Future<void> signOut() async {
+    // Before the token is cleared: revoking needs a session, and a phone that
+    // keeps its registration receives the tickets of whoever signs in next.
+    await devices.revoke();
     await api.logout();
     api.c.bearer = null;
     await store.clearSession();

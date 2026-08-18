@@ -144,6 +144,7 @@ func (s *Server) routes() {
 	s.crewRoutes(m)
 	s.platformRoutes(m)
 	s.clientErrorRoutes(m)
+	s.deviceRoutes(m)
 	s.partnerRoutes(m)
 }
 

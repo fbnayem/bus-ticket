@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/widgets.dart';
 import 'package:jatra_core/jatra_core.dart';
 
@@ -52,20 +54,38 @@ class Session extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Where the platform can reach this phone. Registered on sign-in, revoked on
+  /// sign-out; see [DeviceRegistration] for what is and is not real about it.
+  late final DeviceRegistration devices =
+      DeviceRegistration(api: api.c, store: store, app: 'crew');
+
   Future<void> signIn(String email, String password, {String? totp}) async {
     final r = await api.signIn(email, password, totp: totp);
     api.c.bearer = r['token'] as String?;
     await store.saveSession(token: r['token'] as String?);
     _identity = StaffIdentity.fromJson(r['identity'] as Map<String, dynamic>);
     notifyListeners();
+    // After the identity is set, so a failure here cannot cost somebody the
+    // sign-in they just completed. It reports nothing to the screen for the
+    // same reason.
+    unawaited(devices.register(platform: _platformName()));
   }
 
   Future<void> signOut() async {
+    // Before the token is cleared: revoking needs a session, and a phone that
+    // cannot say "stop" keeps receiving the tickets of whoever signs in next.
+    await devices.revoke();
     await api.signOut();
     api.c.bearer = null;
     _identity = null;
     await store.clearSession();
     notifyListeners();
+  }
+
+  String _platformName() {
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isIOS) return 'ios';
+    return '';
   }
 }
 
