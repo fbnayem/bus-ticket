@@ -18,6 +18,8 @@ export default function TicketPage({ params }: { params: Promise<{ pnr: string }
   const [booking, setBooking] = useState<Booking | null>(null);
   const [fromDevice, setFromDevice] = useState(false);
   const [error, setError] = useState('');
+  const [resent, setResent] = useState('');
+  const [resending, setResending] = useState(false);
 
   // The device first, the platform second — the same order the app uses, and
   // for the same reason. This page is read at a bus door, which is exactly
@@ -65,8 +67,23 @@ export default function TicketPage({ params }: { params: Promise<{ pnr: string }
           <button className="btn btn-ghost btn-sm" onClick={() => window.print()}>{t('ticket.print')}</button>
           <Link className="btn btn-ghost btn-sm" href={`/tracking/${booking.pnr}`}>{t('ticket.track')}</Link>
           <Link className="btn btn-ghost btn-sm" href={`/manage/${booking.pnr}`}>{t('ticket.manage')}</Link>
+          {!cancelled && booking.phone && (
+            <button className="btn btn-ghost btn-sm" disabled={resending} onClick={async () => {
+              setResending(true); setError(''); setResent('');
+              try {
+                await api.resend(booking.pnr, booking.phone);
+                setResent(t('ticket.resent'));
+              } catch (e) { setError(errorText(t, e as ApiError)); }
+              finally { setResending(false); }
+            }}>{resending ? t('ticket.resending') : t('ticket.resend')}</button>
+          )}
+          {booking.vat_registered && (
+            <Link className="btn btn-ghost btn-sm" href={`/invoice/${booking.pnr}`}>{t('inv.link')}</Link>
+          )}
         </div>
       </div>
+
+      {resent && <div className="notice notice-info no-print" role="status" style={{ marginBottom: '1rem' }}>{resent}</div>}
 
       {cancelled && (
         <div className="notice notice-danger" style={{ marginBottom: '1rem' }}>
@@ -96,13 +113,18 @@ export default function TicketPage({ params }: { params: Promise<{ pnr: string }
               <div>
                 <div className="small muted">{t('ticket.from')}</div>
                 <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{booking.origin}</div>
-                <div className="mono tnum">{fmt.time(booking.depart_at)}</div>
-                <div className="small muted">{fmt.date(booking.depart_at)}</div>
+                {/* This passenger's OWN boarding time — the bus reaches a
+                    mid-route stop hours after it first departs, and the ticket
+                    is read at that stop, not at the origin. */}
+                <div className="mono tnum">{fmt.time(booking.board_at)}</div>
+                <div className="small muted">{fmt.date(booking.board_at)}</div>
               </div>
               <div style={{ paddingTop: '1.2rem', color: 'var(--muted)' }} aria-hidden="true">→</div>
               <div>
                 <div className="small muted">{t('ticket.to')}</div>
                 <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{booking.destination}</div>
+                <div className="mono tnum">{fmt.time(booking.arrive_at)}</div>
+                <div className="small muted">{t('trip.arrives')}</div>
               </div>
             </div>
 

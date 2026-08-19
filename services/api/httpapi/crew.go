@@ -561,8 +561,8 @@ func (s *Server) handleCrewSales(w http.ResponseWriter, r *http.Request, id *sta
 		  JOIN catalog.trips t ON t.trip_id = b.trip_id
 		  JOIN catalog.routes r ON r.route_id = t.route_id
 		 WHERE b.sold_by = $1::uuid AND b.channel = 'ONBOARD'
-		   AND ($2 = '' OR b.created_at >= $2::date)
-		   AND ($3 = '' OR b.created_at < ($3::date + 1))
+		   AND ($2 = '' OR (b.created_at AT TIME ZONE 'Asia/Dhaka')::date >= $2::date)
+		   AND ($3 = '' OR (b.created_at AT TIME ZONE 'Asia/Dhaka')::date <= $3::date)
 		   AND ($4 = '' OR b.pnr ILIKE '%' || $4 || '%'
 		        OR EXISTS (SELECT 1 FROM commerce.booking_contacts bc
 		                    WHERE bc.booking_id = b.booking_id AND bc.phone ILIKE '%' || $4 || '%')
@@ -611,10 +611,10 @@ func (s *Server) handleCrewReport(w http.ResponseWriter, r *http.Request, id *st
 			       COALESCE((SELECT sum(c.amount_poisha) FROM crew.commissions c
 			                   JOIN commerce.bookings cb ON cb.booking_id = c.booking_id
 			                  WHERE c.staff_id = $1::uuid
-			                    AND cb.created_at >= `+since+`), 0)
+			                    AND (cb.created_at AT TIME ZONE 'Asia/Dhaka')::date >= `+since+`), 0)
 			  FROM commerce.bookings b
 			 WHERE b.sold_by = $1::uuid AND b.channel = 'ONBOARD'
-			   AND b.created_at >= `+since, id.StaffID).
+			   AND (b.created_at AT TIME ZONE 'Asia/Dhaka')::date >= `+since, id.StaffID).
 			Scan(&sales, &gross, &discount, &commission)
 		return map[string]any{
 			"sales_count": sales, "gross_poisha": gross,

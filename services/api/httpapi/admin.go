@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/busticket/platform/services/commerce/commerce"
 	"github.com/busticket/platform/services/staff/staff"
 )
@@ -679,9 +681,29 @@ func (s *Server) handlePaySettlement(w http.ResponseWriter, r *http.Request, id 
 	writeJSON(w, 200, map[string]any{"settlement_id": sid, "status": "PAID"})
 }
 
-func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request, _ *staff.Identity) {
+func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
 	sid := r.PathValue("settlementID")
 	ctx := r.Context()
+
+	// An operator may read only their OWN settlement statement; platform staff
+	// (no operator scope) may read any. Without this an operator accountant, who
+	// holds settlement.read, could pull a competitor's per-booking revenue book
+	// by settlement id — the same IDOR class the manifest read had.
+	var settleOp string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT operator_id::text FROM finance.settlements WHERE settlement_id=$1::uuid`, sid).
+		Scan(&settleOp); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			fail(w, 404, "not_found", "No settlement with that reference.")
+			return
+		}
+		fail(w, 500, "query_failed", "Could not load the statement.")
+		return
+	}
+	if id.OperatorID != "" && id.OperatorID != settleOp {
+		fail(w, 404, "not_found", "No settlement with that reference.")
+		return
+	}
 
 	exceptions, _ := s.com.SettlementExceptions(ctx, sid)
 

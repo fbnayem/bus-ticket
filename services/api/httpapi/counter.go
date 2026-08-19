@@ -30,6 +30,9 @@ func (s *Server) counterRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/v1/counter/shifts", s.guard("counter.report", s.handleShiftHistory))
 	m.HandleFunc("POST /api/v1/counter/sales", s.guard("counter.sell", s.handleCounterSale))
 	m.HandleFunc("GET /api/v1/counter/sales", s.guard("counter.sell", s.handleCounterSales))
+	m.HandleFunc("POST /api/v1/counter/refunds", s.guard("counter.refund", s.handleCounterRefund))
+	m.HandleFunc("POST /api/v1/counter/reprint", s.guard("counter.sell", s.handleCounterReprint))
+	s.concessionRoutes(m)
 	m.HandleFunc("GET /api/v1/counter/quota", s.guard("counter.quota", s.handleListQuota))
 	m.HandleFunc("POST /api/v1/counter/quota", s.guard("counter.quota", s.handleAllocateQuota))
 	m.HandleFunc("POST /api/v1/counter/quota/release", s.guard("counter.quota", s.handleReleaseQuota))
@@ -144,9 +147,9 @@ func (s *Server) handleOpenShift(w http.ResponseWriter, r *http.Request, id *sta
 }
 
 type closeShiftRequest struct {
-	ShiftID            string `json:"shift_id"`
-	CountedCashPoisha  int64  `json:"counted_cash_poisha"`
-	Note               string `json:"note"`
+	ShiftID           string `json:"shift_id"`
+	CountedCashPoisha int64  `json:"counted_cash_poisha"`
+	Note              string `json:"note"`
 }
 
 func (s *Server) handleCloseShift(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
@@ -177,11 +180,24 @@ func (s *Server) handleCloseShift(w http.ResponseWriter, r *http.Request, id *st
 func (s *Server) handleShiftHistory(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
 	counterID, err := s.counterOf(id)
 	if err != nil {
-		// An operator manager reading counter reports names the counter instead.
+		// An operator manager reading counter reports names the counter instead —
+		// but only one of THEIR counters. Without this ownership check the query
+		// param is an IDOR: a manager could read a competitor's drawer counts,
+		// variances and clerk names by naming their counter id.
 		counterID = r.URL.Query().Get("counter_id")
 		if counterID == "" {
 			fail(w, 400, "counter_required", "Choose a counter.")
 			return
+		}
+		if id.OperatorID != "" {
+			var ok bool
+			if err := s.pool.QueryRow(r.Context(),
+				`SELECT EXISTS (SELECT 1 FROM counter.counters
+				                 WHERE counter_id=$1::uuid AND operator_id=$2::uuid)`,
+				counterID, id.OperatorID).Scan(&ok); err != nil || !ok {
+				fail(w, 404, "not_found", "No counter with that reference.")
+				return
+			}
 		}
 	}
 	rows, err := s.pool.Query(r.Context(), `
@@ -231,6 +247,10 @@ type counterSaleRequest struct {
 	Passengers []passengerIn `json:"passengers"`
 	Phone      string        `json:"phone"`
 	Method     string        `json:"method"` // CASH | BKASH | NAGAD | CARD
+	// Concessions is one code per seat (parallel to Seats); "" is a full-fare
+	// seat. A child/student/senior concession reduces that seat's fare, which
+	// the operator absorbs.
+	Concessions []string `json:"concessions"`
 }
 
 func (s *Server) handleCounterSale(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
@@ -270,12 +290,17 @@ func (s *Server) handleCounterSale(w http.ResponseWriter, r *http.Request, id *s
 		}
 	}
 
+	if len(req.Concessions) != 0 && len(req.Concessions) != len(req.Seats) {
+		fail(w, 400, "bad_concessions", "Give a concession for each seat, or none at all.")
+		return
+	}
+
 	fare, err := s.fareFor(r, req.TripID, req.BoardSeq, req.DropSeq)
 	if err != nil {
 		fail(w, 400, "no_fare", "No fare is published for that journey.")
 		return
 	}
-	total := fare*int64(len(req.Seats)) + serviceFeePoisha
+	full := fare*int64(len(req.Seats)) + serviceFeePoisha
 
 	// The one and only seat acquisition path.
 	hold, err := s.inv.AcquireHold(ctx, inventory.HoldRequest{
@@ -283,7 +308,7 @@ func (s *Server) handleCounterSale(w http.ResponseWriter, r *http.Request, id *s
 		BoardSeq: req.BoardSeq, DropSeq: req.DropSeq,
 		Channel: "COUNTER", SessionRef: counterID, TTL: 5 * time.Minute,
 		PriceSnapshot: []byte(fmt.Sprintf(
-			`{"fare_poisha":%d,"seats":%d,"total_poisha":%d}`, fare, len(req.Seats), total)),
+			`{"fare_poisha":%d,"seats":%d,"total_poisha":%d}`, fare, len(req.Seats), full)),
 	})
 	if errors.Is(err, inventory.ErrSeatUnavailable) {
 		fail(w, 409, "seat_taken", "One of those seats has just gone. Refresh the map and try again.")
@@ -303,6 +328,12 @@ func (s *Server) handleCounterSale(w http.ResponseWriter, r *http.Request, id *s
 		return
 	}
 
+	// Concessions are resolved against this operator's rates and reduce the
+	// fare the passenger pays; the operator absorbs the reduction. total is what
+	// is charged, full is the published price the ledger's commission sits on.
+	discount := concessionDiscount(fare, req.Concessions, s.concessionRates(ctx, operatorID))
+	total := full - discount
+
 	bookingID, pnr, err := s.com.CreateBooking(ctx, commerce.BookingRequest{
 		HoldID: hold.HoldID, TripID: req.TripID, OperatorID: operatorID,
 		Seats: hold.Seats, BoardSeq: req.BoardSeq, DropSeq: req.DropSeq,
@@ -317,6 +348,17 @@ func (s *Server) handleCounterSale(w http.ResponseWriter, r *http.Request, id *s
 	s.attributeSale(ctx, bookingID, counterID, "", id.StaffID)
 	s.savePassengers(ctx, bookingID, req.Passengers, req.Phone, "")
 
+	// The concession travels on the booking, not only in the price snapshot, so
+	// the settlement recomputes the platform's cut on the full fare and the
+	// operator's own reports can sum what concessions cost them.
+	if discount > 0 {
+		if _, err := s.pool.Exec(ctx, `
+			UPDATE commerce.bookings SET discount_poisha = $2, discount_reason = 'CONCESSION'
+			 WHERE booking_id = $1::uuid`, bookingID, discount); err != nil {
+			s.log.Error("counter concession write", "err", err)
+		}
+	}
+
 	if err := s.com.SettleCounterSale(ctx, bookingID, req.ShiftID, req.Method); err != nil {
 		s.log.Error("counter settle", "err", err)
 		fail(w, 500, "payment_failed", "Payment could not be recorded. Nothing has been charged.")
@@ -326,7 +368,8 @@ func (s *Server) handleCounterSale(w http.ResponseWriter, r *http.Request, id *s
 
 	writeJSON(w, 201, map[string]any{
 		"booking_id": bookingID, "pnr": pnr, "seats": hold.Seats,
-		"total_poisha": total, "method": req.Method,
+		"full_poisha": full, "discount_poisha": discount, "total_poisha": total,
+		"method":  req.Method,
 		"tickets": s.ticketsFor(ctx, bookingID),
 	})
 }
@@ -598,4 +641,171 @@ func (s *Server) replayOne(ctx context.Context, counterID, staffID string, sale 
 		UPDATE counter.offline_sales SET booking_id=$2::uuid, pnr=$3 WHERE client_ref=$1`,
 		sale.ClientRef, bookingID, pnr)
 	return pnr, nil
+}
+
+// ---------------------------------------------------------------- refund --
+
+type counterRefundRequest struct {
+	PNR     string `json:"pnr"`
+	ShiftID string `json:"shift_id"`
+	Reason  string `json:"reason"`
+}
+
+// handleCounterRefund refunds a CASH counter sale from the clerk's own drawer.
+// The refund amount is the cancellation policy's, not the clerk's to choose, and
+// the cash is taken out of the open shift so the drawer reconciles at close. Every
+// guard here answers a way this could leak money: another operator's booking, a
+// sale that was never cash, or a refund with no drawer to take it from.
+func (s *Server) handleCounterRefund(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	ctx := r.Context()
+	counterID, err := s.counterOf(id)
+	if err != nil {
+		fail(w, 403, "no_counter", "This account is not attached to a counter.")
+		return
+	}
+	var req counterRefundRequest
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "That request could not be read.")
+		return
+	}
+	if req.PNR == "" {
+		fail(w, 400, "pnr_required", "Which booking? Give a PNR.")
+		return
+	}
+	if req.Reason == "" {
+		fail(w, 400, "reason_required", "A refund needs a reason.")
+		return
+	}
+
+	// How the booking was paid, and whose it is.
+	var bookingOp, channel, status, provider string
+	err = s.pool.QueryRow(ctx, `
+		SELECT b.operator_id::text, b.channel, b.status,
+		       COALESCE((SELECT provider FROM commerce.payments p
+		                  WHERE p.booking_id = b.booking_id AND p.status = 'PAID'
+		                  ORDER BY p.created_at DESC LIMIT 1), '')
+		  FROM commerce.bookings b WHERE b.pnr = upper($1)`, req.PNR).
+		Scan(&bookingOp, &channel, &status, &provider)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "booking_not_found", "No booking with that PNR.")
+		return
+	}
+	if err != nil {
+		fail(w, 500, "query_failed", "Could not load that booking.")
+		return
+	}
+
+	// Tenancy: a clerk acts only on their own operator's bookings.
+	var counterOp string
+	_ = s.pool.QueryRow(ctx,
+		`SELECT operator_id::text FROM counter.counters WHERE counter_id=$1::uuid`, counterID).Scan(&counterOp)
+	if counterOp == "" || bookingOp != counterOp {
+		fail(w, 403, "not_your_booking", "That booking belongs to another operator.")
+		return
+	}
+	// A cash refund is only for a cash sale taken at a counter. Refunding cash for
+	// a bKash sale would put money on the street that never came off the drawer.
+	if channel != "COUNTER" || provider != "CASH" {
+		fail(w, 409, "not_a_cash_counter_sale", "Only a cash counter sale can be refunded from the drawer.")
+		return
+	}
+	if status != "TICKETED" && status != "CONFIRMED" && status != "PAID" {
+		fail(w, 409, "not_refundable", "This booking cannot be refunded in its current state.")
+		return
+	}
+	// The drawer the cash comes from must be open.
+	var open bool
+	_ = s.pool.QueryRow(ctx,
+		`SELECT true FROM counter.shifts WHERE shift_id = NULLIF($1,'')::uuid
+		  AND counter_id = $2::uuid AND status = 'OPEN'`, req.ShiftID, counterID).Scan(&open)
+	if !open {
+		fail(w, 409, "shift_required", "Open a shift before refunding cash.")
+		return
+	}
+
+	quote, err := s.com.QuoteCancellation(ctx, req.PNR)
+	if err != nil {
+		fail(w, 500, "quote_failed", "Could not price the refund.")
+		return
+	}
+	if _, err := s.com.CancelBooking(ctx, req.PNR, req.Reason); err != nil {
+		if errors.Is(err, commerce.ErrNotCancellable) {
+			fail(w, 409, "already_refunded", "This booking is already being refunded.")
+			return
+		}
+		s.log.Error("counter refund cancel", "err", err)
+		fail(w, 500, "refund_failed", "The booking could not be cancelled. Nothing has changed.")
+		return
+	}
+	var paid int64
+	if quote.RefundPoisha > 0 {
+		paid, err = s.com.SettleRefundCash(ctx, req.PNR, req.ShiftID)
+		if err != nil {
+			s.log.Error("counter refund settle", "err", err)
+			fail(w, 500, "settle_failed",
+				"The booking was cancelled but the cash refund did not record. Settle it from the office.")
+			return
+		}
+	}
+	outStatus := "REFUNDED"
+	if paid == 0 {
+		outStatus = "CANCELLED"
+	}
+	s.stf.Audit(ctx, id, "counter.refund", "booking:"+req.PNR,
+		map[string]any{"refund_poisha": paid, "reason": req.Reason})
+
+	writeJSON(w, 200, map[string]any{
+		"pnr": req.PNR, "refund_poisha": paid, "refund_pct": quote.RefundPct, "status": outStatus,
+	})
+}
+
+// ---------------------------------------------------------------- reprint --
+
+type counterReprintRequest struct {
+	PNR string `json:"pnr"`
+}
+
+// handleCounterReprint hands the clerk the ticket(s) again — the QR is unchanged,
+// only reissued on paper — and logs who did it. A reissuable paper ticket is a
+// fraud surface, so the reprint is audited even though nothing about the booking
+// changes; the boarding scan still catches a seat that tries to board twice.
+func (s *Server) handleCounterReprint(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	ctx := r.Context()
+	counterID, err := s.counterOf(id)
+	if err != nil {
+		fail(w, 403, "no_counter", "This account is not attached to a counter.")
+		return
+	}
+	var req counterReprintRequest
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "That request could not be read.")
+		return
+	}
+	if req.PNR == "" {
+		fail(w, 400, "pnr_required", "Which booking? Give a PNR.")
+		return
+	}
+	var bookingID, bookingOp, status string
+	err = s.pool.QueryRow(ctx,
+		`SELECT booking_id::text, operator_id::text, status FROM commerce.bookings WHERE pnr = upper($1)`,
+		req.PNR).Scan(&bookingID, &bookingOp, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "booking_not_found", "No booking with that PNR.")
+		return
+	}
+	if err != nil {
+		fail(w, 500, "query_failed", "Could not load that booking.")
+		return
+	}
+	var counterOp string
+	_ = s.pool.QueryRow(ctx,
+		`SELECT operator_id::text FROM counter.counters WHERE counter_id=$1::uuid`, counterID).Scan(&counterOp)
+	if counterOp == "" || bookingOp != counterOp {
+		fail(w, 403, "not_your_booking", "That booking belongs to another operator.")
+		return
+	}
+	s.stf.Audit(ctx, id, "counter.reprint", "booking:"+req.PNR, nil)
+	writeJSON(w, 200, map[string]any{
+		"pnr": req.PNR, "status": status, "tickets": s.ticketsFor(ctx, bookingID),
+	})
 }

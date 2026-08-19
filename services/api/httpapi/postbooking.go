@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/busticket/platform/services/commerce/commerce"
+	"github.com/busticket/platform/services/identity/identity"
 	"github.com/busticket/platform/services/inventory/inventory"
 )
 
@@ -139,17 +140,17 @@ func (s *Server) handleRescheduleOptions(w http.ResponseWriter, r *http.Request)
 	// was shown a price this service had not agreed to — and would have been
 	// shown the wrong one the day the fee changed here. Pricing is the server's.
 	type option struct {
-		TripID     string    `json:"trip_id"`
-		Brand      string    `json:"brand"`
-		BusType    string    `json:"bus_type"`
-		DepartAt   time.Time `json:"depart_at"`
-		BoardSeq   int       `json:"board_seq"`
-		DropSeq    int       `json:"drop_seq"`
-		FarePoisha int64     `json:"fare_poisha"`
-		TotalPoisha int64    `json:"total_poisha"`
-		DifferencePoisha int64 `json:"difference_poisha"`
-		Available  int       `json:"available_seats"`
-		Eligible   bool      `json:"eligible"`
+		TripID           string    `json:"trip_id"`
+		Brand            string    `json:"brand"`
+		BusType          string    `json:"bus_type"`
+		DepartAt         time.Time `json:"depart_at"`
+		BoardSeq         int       `json:"board_seq"`
+		DropSeq          int       `json:"drop_seq"`
+		FarePoisha       int64     `json:"fare_poisha"`
+		TotalPoisha      int64     `json:"total_poisha"`
+		DifferencePoisha int64     `json:"difference_poisha"`
+		Available        int       `json:"available_seats"`
+		Eligible         bool      `json:"eligible"`
 	}
 	out := []option{}
 	for rows.Next() {
@@ -243,15 +244,38 @@ func (s *Server) handleReschedule(w http.ResponseWriter, r *http.Request) {
 	newTotal := fare*int64(len(req.Seats)) + serviceFeePoisha
 	diff := newTotal - oldTotal
 
-	// 2. release the old allocation
-	if err := s.inv.ReleaseConfirmed(ctx, oldHoldID, "RESCHEDULED"); err != nil {
+	// 2. claim the old booking atomically. The status read above is unlocked, so
+	// two concurrent reschedules of the same PNR can both pass it; this conditional
+	// retirement is the mutex — only the first flips TICKETED/CONFIRMED to CANCELLED,
+	// the rest get zero rows and abort here, before a second replacement booking or
+	// a double hold-release can exist. The old SEATS are not released yet: they stay
+	// confirmed until the replacement is safely created, so a failure below can never
+	// free them for another buyer while the passenger is left with nothing.
+	claim, err := s.pool.Exec(ctx, `
+		UPDATE commerce.bookings SET status='CANCELLED', updated_at=now()
+		 WHERE booking_id=$1::uuid AND status IN ('TICKETED','CONFIRMED')`, oldBookingID)
+	if err != nil {
 		release()
-		s.log.Error("reschedule release old", "err", err)
+		s.log.Error("reschedule claim old", "err", err)
 		fail(w, 500, "reschedule_failed", "We could not move your booking. Your original ticket is unchanged.")
 		return
 	}
+	if claim.RowsAffected() != 1 {
+		release()
+		fail(w, 409, "not_reschedulable", "That booking was just changed on another device. Your original ticket is unchanged.")
+		return
+	}
 
-	// 3. issue the replacement
+	// restoreOld puts the original booking back the way it was, for any failure
+	// between the claim and the point of no return. Because the old seats are still
+	// held, this fully reinstates the passenger's original ticket.
+	restoreOld := func() {
+		_, _ = s.pool.Exec(ctx, `
+			UPDATE commerce.bookings SET status=$2, updated_at=now() WHERE booking_id=$1::uuid`,
+			oldBookingID, status)
+	}
+
+	// 3. issue the replacement while the old seats are still held
 	newBookingID, newPNR, err := s.com.CreateBooking(ctx, commerce.BookingRequest{
 		HoldID: newHold.HoldID, TripID: req.TripID, OperatorID: operatorID,
 		Seats: newHold.Seats, BoardSeq: req.BoardSeq, DropSeq: req.DropSeq,
@@ -259,9 +283,18 @@ func (s *Server) handleReschedule(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		release()
+		restoreOld()
 		s.log.Error("reschedule create booking", "err", err)
-		fail(w, 500, "reschedule_failed", "We could not move your booking. Please contact support.")
+		fail(w, 500, "reschedule_failed", "We could not move your booking. Your original ticket is unchanged.")
 		return
+	}
+
+	// 4. only now, with the replacement in hand, give up the old seats
+	if err := s.inv.ReleaseConfirmed(ctx, oldHoldID, "RESCHEDULED"); err != nil {
+		// The replacement exists and the old booking is cancelled; the old seats
+		// linger held rather than being double-sold. Log and press on — the
+		// passenger's new booking is valid.
+		s.log.Error("reschedule release old", "err", err)
 	}
 
 	// carry the passengers and contact across
@@ -279,12 +312,11 @@ func (s *Server) handleReschedule(w http.ResponseWriter, r *http.Request) {
 		SELECT $1::uuid, phone, email FROM commerce.booking_contacts WHERE booking_id=$2::uuid
 		ON CONFLICT DO NOTHING`, newBookingID, oldBookingID)
 
-	// 4. retire the old booking
-	_, _ = s.pool.Exec(ctx, `
-		UPDATE commerce.bookings SET status='CANCELLED', updated_at=now() WHERE booking_id=$1::uuid`, oldBookingID)
+	// 5. finish retiring the old booking (its status was already flipped to
+	// CANCELLED by the claim above; record the history and void the tickets)
 	_, _ = s.pool.Exec(ctx, `
 		INSERT INTO commerce.booking_status_history (booking_id, from_status, to_status, reason)
-		VALUES ($1::uuid,'TICKETED','CANCELLED','rescheduled to '||$2)`, oldBookingID, newPNR)
+		VALUES ($1::uuid,$3,'CANCELLED','rescheduled to '||$2)`, oldBookingID, newPNR, status)
 	_, _ = s.pool.Exec(ctx, `
 		UPDATE commerce.tickets SET status='CANCELLED' WHERE booking_id=$1::uuid`, oldBookingID)
 
@@ -327,12 +359,12 @@ func (s *Server) handleReschedule(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]any{
 		"old_pnr": pnr, "new_pnr": newPNR, "new_booking_id": newBookingID,
-		"hold_id": newHold.HoldID,
+		"hold_id":          newHold.HoldID,
 		"old_total_poisha": oldTotal, "new_total_poisha": newTotal,
 		"difference_poisha": diff,
-		"payable":    diff > 0,
-		"refundable": diff < 0,
-		"ticketed":   ticketed,
+		"payable":           diff > 0,
+		"refundable":        diff < 0,
+		"ticketed":          ticketed,
 	}
 	switch {
 	case diff > 0:
@@ -376,12 +408,12 @@ func (s *Server) handleTracking(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type stop struct {
-		Seq     int       `json:"seq"`
-		Name    string    `json:"name"`
-		At      time.Time `json:"at"`
-		Passed  bool      `json:"passed"`
-		Lat     float64   `json:"lat"`
-		Lng     float64   `json:"lng"`
+		Seq    int       `json:"seq"`
+		Name   string    `json:"name"`
+		At     time.Time `json:"at"`
+		Passed bool      `json:"passed"`
+		Lat    float64   `json:"lat"`
+		Lng    float64   `json:"lng"`
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT rs.stop_seq, l.name,
@@ -509,9 +541,16 @@ func (s *Server) handleAccountBookings(w http.ResponseWriter, r *http.Request) {
 	if id == nil {
 		return
 	}
+	// board_at is the passenger's OWN boarding time, not the trip's origin
+	// departure — a mid-route boarder's bus reaches them hours after it first
+	// pulls out, and this list sits next to their board stop, so it must show
+	// their time. It also decides upcoming vs past for the same reason.
 	rows, err := s.pool.Query(r.Context(), `
-		SELECT b.pnr, b.status, b.total_poisha, t.depart_at, o.brand,
-		       lo.name, ld.name,
+		SELECT b.pnr, b.status, b.total_poisha,
+		       t.depart_at + COALESCE((SELECT sum(m.minutes) FROM catalog.route_segment_minutes m
+		                                WHERE m.route_id=t.route_id AND m.from_stop_seq < b.board_stop_seq),0)
+		                     * interval '1 minute' AS board_at,
+		       o.brand, lo.name, ld.name,
 		       (SELECT count(*) FROM commerce.booking_seats bs WHERE bs.booking_id=b.booking_id)
 		  FROM commerce.bookings b
 		  LEFT JOIN commerce.booking_contacts c ON c.booking_id=b.booking_id
@@ -522,7 +561,7 @@ func (s *Server) handleAccountBookings(w http.ResponseWriter, r *http.Request) {
 		  JOIN catalog.route_stops rsd ON rsd.route_id=t.route_id AND rsd.stop_seq=b.drop_stop_seq
 		  JOIN catalog.locations ld ON ld.location_id=rsd.location_id
 		 WHERE b.user_id = $1::uuid OR c.phone = $2
-		 ORDER BY t.depart_at DESC LIMIT 50`, id.UserID, id.Phone)
+		 ORDER BY board_at DESC LIMIT 50`, id.UserID, id.Phone)
 	if err != nil {
 		fail(w, 500, "query_failed", "Could not load your trips.")
 		return
@@ -533,7 +572,7 @@ func (s *Server) handleAccountBookings(w http.ResponseWriter, r *http.Request) {
 		PNR         string    `json:"pnr"`
 		Status      string    `json:"status"`
 		TotalPoisha int64     `json:"total_poisha"`
-		DepartAt    time.Time `json:"depart_at"`
+		BoardAt     time.Time `json:"board_at"`
 		Brand       string    `json:"brand"`
 		Origin      string    `json:"origin"`
 		Destination string    `json:"destination"`
@@ -543,11 +582,11 @@ func (s *Server) handleAccountBookings(w http.ResponseWriter, r *http.Request) {
 	upcoming, past := []item{}, []item{}
 	for rows.Next() {
 		var it item
-		if err := rows.Scan(&it.PNR, &it.Status, &it.TotalPoisha, &it.DepartAt,
+		if err := rows.Scan(&it.PNR, &it.Status, &it.TotalPoisha, &it.BoardAt,
 			&it.Brand, &it.Origin, &it.Destination, &it.SeatCount); err != nil {
 			continue
 		}
-		it.Upcoming = it.DepartAt.After(time.Now())
+		it.Upcoming = it.BoardAt.After(time.Now())
 		if it.Upcoming {
 			upcoming = append(upcoming, it)
 		} else {
@@ -709,4 +748,60 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 		// rather than both, and leave the passenger to work out which is theirs.
 		"has_password": s.ident.HasPassword(r.Context(), id.UserID),
 	})
+}
+
+// handleResendTicket is the passenger's own "I never got my ticket" button.
+// Support could already resend from the console; a passenger holding a PNR could
+// not, and the confirmation SMS is the single most-missed message. It sends only
+// to the number ON FILE — never to a number the caller supplies — and the caller
+// must present that number to prove the booking is theirs, so a stranger with a
+// guessed PNR cannot spray someone's phone. It is rate-limited per PNR on top.
+func (s *Server) handleResendTicket(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	pnr := strings.ToUpper(r.PathValue("pnr"))
+	var req struct {
+		Phone string `json:"phone"`
+	}
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "That request could not be read.")
+		return
+	}
+
+	if s.cache != nil {
+		if ok, _ := s.cache.Allow(ctx, "rl:resend:"+pnr, resendBurst, time.Hour); !ok {
+			fail(w, 429, "too_many_resends", "This ticket has been resent a few times already. Please wait a little while.")
+			return
+		}
+	}
+
+	var status, phone string
+	err := s.pool.QueryRow(ctx, `
+		SELECT b.status, COALESCE(c.phone,'')
+		  FROM commerce.bookings b
+		  LEFT JOIN commerce.booking_contacts c ON c.booking_id = b.booking_id
+		 WHERE b.pnr = $1`, pnr).Scan(&status, &phone)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "booking_not_found", "We could not find a booking with that PNR.")
+		return
+	}
+	if err != nil {
+		fail(w, 500, "query_failed", "Could not load that booking.")
+		return
+	}
+	if status != "TICKETED" && status != "CONFIRMED" {
+		fail(w, 409, "not_deliverable", "Only a live ticket can be resent.")
+		return
+	}
+	// Ownership: the number given must be the number on the booking. Same phone,
+	// same person — and the message only ever goes to that number regardless.
+	if identity.NormalisePhone(req.Phone) == "" || identity.NormalisePhone(req.Phone) != identity.NormalisePhone(phone) {
+		fail(w, 403, "phone_mismatch", "That mobile number does not match this booking.")
+		return
+	}
+	if err := s.com.ResendConfirmation(ctx, pnr); err != nil {
+		s.log.Error("passenger resend", "err", err)
+		fail(w, 500, "resend_failed", "The ticket could not be resent. Please try again.")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"pnr": pnr, "resent": true})
 }

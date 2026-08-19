@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/api';
 import { sget } from '@/lib/staff';
 import { ErrorNotice, StatusPill } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
-import { dateTimeOf, timeOf } from '@/lib/format';
+import { dateTimeOf, timeOf, channelLabel } from '@/lib/format';
 
 // One search box. A passenger on the phone will give you whatever they have —
 // a PNR, the number they booked with, an email, a name, or the transaction id
@@ -85,7 +85,7 @@ export default function HelpdeskSearchPage() {
                     </td>
                     <td className="small">{r.operator}<div className="muted">{dateTimeOf(r.depart_at)}</div></td>
                     <td className="mono small">{r.seats}</td>
-                    <td className="small muted">{r.channel.replace(/_/g, ' ').toLowerCase()}</td>
+                    <td className="small muted">{channelLabel(r.channel)}</td>
                     <td className="num"><Money poisha={r.total_poisha} /></td>
                     <td><StatusPill status={r.status} /></td>
                     <td>

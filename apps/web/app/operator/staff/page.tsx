@@ -1,40 +1,53 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '@/lib/api';
-import { sget } from '@/lib/staff';
+import { sget, can } from '@/lib/staff';
+import { useSession } from '@/components/StaffShell';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead } from '@/components/staff-ui';
 import { dateTimeOf } from '@/lib/format';
+import StaffForm, { RoleOpt, Person } from '@/components/StaffForm';
 
-interface Person {
-  staff_id: string; full_name: string; email: string; phone: string;
-  status: string; roles: string; counter: string; last_login_at: string | null;
+interface Row extends Person {
+  counter: string; last_login_at: string | null;
 }
 
 export default function OperatorStaffPage() {
-  const [rows, setRows] = useState<Person[]>([]);
+  const session = useSession();
+  const [rows, setRows] = useState<Row[]>([]);
+  const [roles, setRoles] = useState<RoleOpt[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Row | null>(null);
 
-  useEffect(() => {
-    sget<{ staff: Person[] }>('/operator/staff')
-      .then((r) => setRows(r.staff))
+  const mayWrite = can(session?.identity ?? null, 'staff.write');
+
+  const load = useCallback(() => {
+    Promise.all([
+      sget<{ staff: Row[] }>('/operator/staff'),
+      mayWrite ? sget<{ roles: RoleOpt[] }>('/operator/roles') : Promise.resolve({ roles: [] }),
+    ])
+      .then(([s, r]) => { setRows(s.staff); setRoles(r.roles); })
       .catch((e: ApiError) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [mayWrite]);
+
+  useEffect(() => { load(); }, [load]);
 
   if (loading) return <Loading rows={2} />;
 
   return (
     <div className="stack">
-      <PageHead title="Staff & roles" sub="Who works here and what each of them may do" />
+      <PageHead title="Staff & roles" sub="Who works here and what each of them may do"
+        actions={mayWrite && <button className="btn btn-brand" onClick={() => setCreating(true)}>New staff</button>} />
       {error && <ErrorNotice message={error} />}
 
       <div className="table-wrap">
         <table className="data">
           <thead>
-            <tr><th>Name</th><th>Email</th><th>Roles</th><th>Counter</th><th>Last signed in</th><th>Status</th></tr>
+            <tr><th>Name</th><th>Email</th><th>Roles</th><th>Counter</th><th>Last signed in</th><th>Status</th>{mayWrite && <th />}</tr>
           </thead>
           <tbody>
             {rows.map((p) => (
@@ -42,7 +55,7 @@ export default function OperatorStaffPage() {
                 <td><strong>{p.full_name}</strong><div className="muted small">{p.phone}</div></td>
                 <td className="mono small">{p.email}</td>
                 <td>
-                  <div className="row" style={{ gap: '.25rem' }}>
+                  <div className="row" style={{ gap: '.25rem', flexWrap: 'wrap' }}>
                     {p.roles.split(', ').filter(Boolean).map((r) => (
                       <span className="pill" key={r} style={{ fontSize: '.68rem' }}>{r.replace(/_/g, ' ')}</span>
                     ))}
@@ -55,10 +68,13 @@ export default function OperatorStaffPage() {
                     {p.status.toLowerCase()}
                   </span>
                 </td>
+                {mayWrite && (
+                  <td><button className="btn btn-sm btn-ghost" onClick={() => setEditing(p)}>Edit</button></td>
+                )}
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={6} className="muted center">No staff.</td></tr>
+              <tr><td colSpan={mayWrite ? 7 : 6} className="muted center">No staff.</td></tr>
             )}
           </tbody>
         </table>
@@ -70,6 +86,15 @@ export default function OperatorStaffPage() {
         so creating &ldquo;Regional Supervisor&rdquo; with exactly the rights it
         needs does not require a release.
       </p>
+
+      {creating && (
+        <StaffForm roles={roles} onClose={() => setCreating(false)}
+                   onSaved={() => { setCreating(false); load(); }} />
+      )}
+      {editing && (
+        <StaffForm roles={roles} person={editing} onClose={() => setEditing(null)}
+                   onSaved={() => { setEditing(null); load(); }} />
+      )}
     </div>
   );
 }

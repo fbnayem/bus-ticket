@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/api';
 import { sget } from '@/lib/staff';
 import { ErrorNotice, Loading, StatusPill } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
-import { dateTimeOf, timeOf } from '@/lib/format';
+import { dateTimeOf, timeOf, channelLabel } from '@/lib/format';
 
 interface Booking {
   pnr: string; status: string; channel: string; total_poisha: number;
@@ -45,7 +45,7 @@ export default function AdminBookingsPage() {
                 <td className="mono"><strong>{b.pnr}</strong></td>
                 <td>{b.operator}</td>
                 <td>{timeOf(b.depart_at)}</td>
-                <td className="small muted">{b.channel.replace(/_/g, ' ').toLowerCase()}</td>
+                <td className="small muted">{channelLabel(b.channel)}</td>
                 <td className="mono small">{b.phone}</td>
                 <td className="num"><Money poisha={b.total_poisha} /></td>
                 <td><StatusPill status={b.status} /></td>

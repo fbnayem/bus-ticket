@@ -21,6 +21,7 @@ import (
 
 	"github.com/busticket/platform/services/analytics/analytics"
 	"github.com/busticket/platform/services/api/eventwire"
+	"github.com/busticket/platform/services/api/tripgen"
 	"github.com/busticket/platform/services/commerce/commerce"
 	"github.com/busticket/platform/services/events/events"
 	"github.com/busticket/platform/services/identity/identity"
@@ -63,6 +64,10 @@ type Deps struct {
 	// dev default; production supplies a real one and main refuses to start
 	// without it.
 	IntentSecret []byte
+	// Gen materialises trips from schedules; the schedule endpoints call it so a
+	// newly saved schedule's trips appear at once rather than at the next tick.
+	Gen     *tripgen.Generator
+	Horizon int
 }
 
 type Server struct {
@@ -83,8 +88,13 @@ type Server struct {
 	risk  *risk.Service
 	recon *recon.Service
 	cache *cache.Client
+	gen   *tripgen.Generator
 	log   *slog.Logger
 	mux   *http.ServeMux
+
+	// horizon is how many days ahead trip generation reaches, mirrored from the
+	// startup generator so a newly saved schedule materialises the same span.
+	horizon int
 
 	// intentSec signs the payment intent that travels through the browser. Set
 	// from config so it is never a constant compiled into the binary; falls
@@ -97,8 +107,11 @@ func NewServer(d Deps) *Server {
 		pool: d.Pool, inv: d.Inventory, com: d.Commerce, stf: d.Staff, wal: d.Wallet,
 		ident: d.Identity, idx: d.Search, ntf: d.Notify, bus: d.Events, wire: d.Wire,
 		stats: d.Analytics, occ: d.Ops, prt: d.Partner, promo: d.Promo, risk: d.Risk,
-		recon: d.Recon, cache: d.Cache, log: d.Log, mux: http.NewServeMux(),
-		intentSec: d.IntentSecret,
+		recon: d.Recon, cache: d.Cache, gen: d.Gen, log: d.Log, mux: http.NewServeMux(),
+		intentSec: d.IntentSecret, horizon: d.Horizon,
+	}
+	if s.horizon <= 0 {
+		s.horizon = 14
 	}
 	s.routes()
 	return s
@@ -107,6 +120,9 @@ func NewServer(d Deps) *Server {
 func (s *Server) routes() {
 	m := s.mux
 	m.HandleFunc("GET /api/v1/health", s.handleHealth)
+	m.HandleFunc("GET /api/v1/live", s.handleLive)
+	m.HandleFunc("GET /api/v1/ready", s.handleReady)
+	m.HandleFunc("GET /api/v1/version", s.handleVersion)
 
 	// discovery
 	m.HandleFunc("GET /api/v1/locations", s.handleLocations)
@@ -128,6 +144,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/v1/payments/webhooks/{provider}", s.handleWebhook)
 
 	// post-booking
+	m.HandleFunc("GET /api/v1/bookings/{pnr}/invoice", s.handleBookingInvoice)
+	m.HandleFunc("POST /api/v1/bookings/{pnr}/resend", s.handleResendTicket)
 	m.HandleFunc("GET /api/v1/bookings/{pnr}/cancellation-quote", s.handleCancellationQuote)
 	m.HandleFunc("POST /api/v1/bookings/{pnr}/cancel", s.handleCancel)
 	m.HandleFunc("POST /api/v1/bookings/{pnr}/settle-refund", s.handleSettleRefund)

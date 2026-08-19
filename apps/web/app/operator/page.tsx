@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/api';
 import { sget } from '@/lib/staff';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money, Tile, Bar } from '@/components/staff-ui';
-import { taka, timeOf } from '@/lib/format';
+import { taka, timeOf, channelLabel } from '@/lib/format';
 
 interface Dashboard {
   operator: string;
@@ -19,11 +19,6 @@ interface Dashboard {
   by_channel: { channel: string; bookings: number; revenue_poisha: number }[];
   today: { trip_id: string; depart_at: string; seats: number; sold: number; occupancy_pct: number }[];
 }
-
-const CHANNEL_LABEL: Record<string, string> = {
-  WEB: 'Website', APP: 'Mobile app', COUNTER: 'Counter',
-  COUNTER_OFFLINE: 'Counter (offline)', AGENT: 'Agent', PARTNER: 'Partner API',
-};
 
 export default function OperatorDashboard() {
   const [d, setD] = useState<Dashboard | null>(null);
@@ -64,7 +59,7 @@ export default function OperatorDashboard() {
             <tbody>
               {d.by_channel.map((c) => (
                 <tr key={c.channel}>
-                  <td>{CHANNEL_LABEL[c.channel] ?? c.channel}</td>
+                  <td>{channelLabel(c.channel)}</td>
                   <td style={{ width: '40%' }}><Bar value={c.revenue_poisha} max={maxChannel} /></td>
                   <td className="num">{c.bookings}</td>
                   <td className="num"><Money poisha={c.revenue_poisha} /></td>

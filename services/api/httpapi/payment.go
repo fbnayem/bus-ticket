@@ -93,10 +93,10 @@ func (s *Server) handlePaymentIntent(w http.ResponseWriter, r *http.Request) {
 	ref := base64.RawURLEncoding.EncodeToString(raw)
 
 	writeJSON(w, 201, map[string]any{
-		"payment_ref":  ref,
-		"provider":     req.Provider,
+		"payment_ref":   ref,
+		"provider":      req.Provider,
 		"amount_poisha": amount,
-		"pnr":          pnr,
+		"pnr":           pnr,
 		// In production this is the provider's own hosted checkout URL.
 		"redirect_url": "/payment/sandbox?ref=" + ref,
 	})
@@ -153,7 +153,7 @@ func (s *Server) handleSandboxComplete(w http.ResponseWriter, r *http.Request) {
 		Scan(&pnr, &status)
 	writeJSON(w, 200, map[string]any{
 		"status": status, "pnr": pnr,
-		"confirmed": status == "TICKETED",
+		"confirmed":      status == "TICKETED",
 		"first_delivery": accepted, // false on a replay — still a success for the caller
 	})
 }
@@ -181,10 +181,10 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 // --------------------------------------------------------- booking read --
 
 type ticketDTO struct {
-	TicketID string `json:"ticket_id"`
-	SeatNo   string `json:"seat_no"`
-	QRToken  string `json:"qr_token"`
-	Status   string `json:"status"`
+	TicketID  string `json:"ticket_id"`
+	SeatNo    string `json:"seat_no"`
+	QRToken   string `json:"qr_token"`
+	Status    string `json:"status"`
 	Passenger string `json:"passenger"`
 }
 
@@ -193,37 +193,42 @@ func (s *Server) handleGetBooking(w http.ResponseWriter, r *http.Request) {
 	pnr := r.PathValue("pnr")
 
 	var out struct {
-		PNR         string    `json:"pnr"`
-		BookingID   string    `json:"booking_id"`
-		Status      string    `json:"status"`
-		TotalPoisha int64     `json:"total_poisha"`
-		Channel     string    `json:"channel"`
-		CreatedAt   time.Time `json:"created_at"`
-		TripID      string    `json:"trip_id"`
-		Brand       string    `json:"brand"`
-		BusType     string    `json:"bus_type"`
-		Registration string   `json:"registration"`
-		DepartAt    time.Time `json:"depart_at"`
-		Origin      string    `json:"origin"`
-		Destination string    `json:"destination"`
-		BoardSeq    int       `json:"board_seq"`
-		DropSeq     int       `json:"drop_seq"`
-		Phone       string    `json:"phone"`
-		Email       string    `json:"email"`
-		Seats       []string  `json:"seats"`
-		Tickets     []ticketDTO `json:"tickets"`
-		Refund      *struct {
+		PNR           string      `json:"pnr"`
+		BookingID     string      `json:"booking_id"`
+		Status        string      `json:"status"`
+		TotalPoisha   int64       `json:"total_poisha"`
+		Channel       string      `json:"channel"`
+		CreatedAt     time.Time   `json:"created_at"`
+		TripID        string      `json:"trip_id"`
+		Brand         string      `json:"brand"`
+		BusType       string      `json:"bus_type"`
+		Registration  string      `json:"registration"`
+		DepartAt      time.Time   `json:"depart_at"`
+		BoardAt       time.Time   `json:"board_at"`
+		ArriveAt      time.Time   `json:"arrive_at"`
+		Origin        string      `json:"origin"`
+		Destination   string      `json:"destination"`
+		BoardSeq      int         `json:"board_seq"`
+		DropSeq       int         `json:"drop_seq"`
+		Phone         string      `json:"phone"`
+		Email         string      `json:"email"`
+		VATRegistered bool        `json:"vat_registered"`
+		Seats         []string    `json:"seats"`
+		Tickets       []ticketDTO `json:"tickets"`
+		Refund        *struct {
 			Status string `json:"status"`
 			Amount int64  `json:"amount_poisha"`
 		} `json:"refund,omitempty"`
 	}
 
+	var routeID string
 	err := s.pool.QueryRow(ctx, `
 		SELECT b.pnr, b.booking_id::text, b.status, b.total_poisha, b.channel, b.created_at,
 		       b.trip_id::text, o.brand, bt.name, bus.registration, t.depart_at,
+		       t.route_id::text,
 		       b.board_stop_seq, b.drop_stop_seq,
 		       COALESCE(c.phone,''), COALESCE(c.email,''),
-		       lo.name, ld.name
+		       lo.name, ld.name, (o.vat_bin IS NOT NULL AND o.vat_bin <> '')
 		  FROM commerce.bookings b
 		  JOIN catalog.trips t      ON t.trip_id = b.trip_id
 		  JOIN catalog.operators o  ON o.operator_id = b.operator_id
@@ -237,7 +242,8 @@ func (s *Server) handleGetBooking(w http.ResponseWriter, r *http.Request) {
 		 WHERE b.pnr = upper($1)`, pnr).
 		Scan(&out.PNR, &out.BookingID, &out.Status, &out.TotalPoisha, &out.Channel, &out.CreatedAt,
 			&out.TripID, &out.Brand, &out.BusType, &out.Registration, &out.DepartAt,
-			&out.BoardSeq, &out.DropSeq, &out.Phone, &out.Email, &out.Origin, &out.Destination)
+			&routeID, &out.BoardSeq, &out.DropSeq, &out.Phone, &out.Email, &out.Origin, &out.Destination,
+			&out.VATRegistered)
 	if errors.Is(err, pgx.ErrNoRows) {
 		fail(w, 404, "booking_not_found", "We could not find a booking with that PNR.")
 		return
@@ -246,6 +252,29 @@ func (s *Server) handleGetBooking(w http.ResponseWriter, r *http.Request) {
 		s.log.Error("get booking", "err", err)
 		fail(w, 500, "query_failed", "Could not load that booking.")
 		return
+	}
+
+	// The passenger's own boarding time, not the trip's origin departure. On an
+	// intercity route a mid-route boarder is picked up hours after the bus first
+	// pulls out, so a ticket that prints the origin's time sends them to the
+	// counter at the wrong hour. arrive_at is the same computation at the drop
+	// stop. Both fall back to depart_at only when the route carries no timings.
+	out.BoardAt, out.ArriveAt = out.DepartAt, out.DepartAt
+	if offRows, oerr := s.pool.Query(ctx,
+		`SELECT from_stop_seq, minutes FROM catalog.route_segment_minutes
+		  WHERE route_id=$1::uuid`, routeID); oerr == nil {
+		offsets := map[int]int{}
+		for offRows.Next() {
+			var seq, min int
+			if offRows.Scan(&seq, &min) == nil {
+				offsets[seq] = min
+			}
+		}
+		offRows.Close()
+		if len(offsets) > 0 {
+			out.BoardAt = arrivalAt(out.DepartAt, offsets, out.BoardSeq)
+			out.ArriveAt = arrivalAt(out.DepartAt, offsets, out.DropSeq)
+		}
 	}
 
 	rows, err := s.pool.Query(ctx, `

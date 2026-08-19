@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -62,7 +63,7 @@ func main() {
 	// noticed. The check is fail-closed and it is here, before anything binds a
 	// port, so a misconfigured deploy dies loudly at boot rather than quietly
 	// serving forgeable tokens.
-	production := env("APP_ENV", "development") == "production"
+	production := isProduction(env("APP_ENV", "development"))
 	qrKey := requireSecret(log, production, "QR_SIGNING_KEY", "dev-qr-signing-key-v1")
 	hookSecret := requireSecret(log, production, "WEBHOOK_SECRET", "provider-webhook-secret")
 	intentSecret := requireSecret(log, production, "PAYMENT_INTENT_SECRET", "sandbox-intent-secret")
@@ -197,6 +198,7 @@ func main() {
 			Identity: ident, Search: idx, Notify: ntf, Events: bus, Wire: wire,
 			Analytics: stats, Ops: occ, Partner: prt, Promo: prm, Risk: rsk,
 			Recon: rcn, Cache: redis, Log: log, IntentSecret: intentSecret,
+			Gen: gen, Horizon: horizon,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -281,6 +283,21 @@ func env(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// isProduction fails closed: it treats anything that is not a well-known
+// non-production name as production. A deploy that sets APP_ENV=prod,
+// =Production, =PROD, or =staging must NOT silently disable the secret guard —
+// an exact "== production" match did exactly that, letting the process boot on
+// forgeable dev-default keys under a near-universal naming convention. An unset
+// value stays development so the stack still runs locally with no configuration.
+func isProduction(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "development", "dev", "test", "local", "ci":
+		return false
+	default:
+		return true
+	}
 }
 
 // requireSecret returns the configured secret, and in production refuses to

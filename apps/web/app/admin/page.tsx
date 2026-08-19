@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/api';
 import { sget } from '@/lib/staff';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money, Tile, Bar } from '@/components/staff-ui';
-import { taka } from '@/lib/format';
+import { taka, channelLabel } from '@/lib/format';
 
 interface Overview {
   operators: number; upcoming_trips: number; bookings: number; tickets: number;
@@ -14,11 +14,6 @@ interface Overview {
   trial_balance_variance_poisha: number;
   by_channel: { channel: string; bookings: number; revenue_poisha: number }[];
 }
-
-const CHANNEL_LABEL: Record<string, string> = {
-  WEB: 'Website', APP: 'Mobile app', COUNTER: 'Counter',
-  COUNTER_OFFLINE: 'Counter (offline)', AGENT: 'Agent', PARTNER: 'Partner API',
-};
 
 export default function AdminOverview() {
   const [d, setD] = useState<Overview | null>(null);
@@ -74,7 +69,7 @@ export default function AdminOverview() {
           <tbody>
             {d.by_channel.map((c) => (
               <tr key={c.channel}>
-                <td>{CHANNEL_LABEL[c.channel] ?? c.channel}</td>
+                <td>{channelLabel(c.channel)}</td>
                 <td style={{ width: '45%' }}><Bar value={c.revenue_poisha} max={maxChannel} /></td>
                 <td className="num">{c.bookings}</td>
                 <td className="num"><Money poisha={c.revenue_poisha} /></td>

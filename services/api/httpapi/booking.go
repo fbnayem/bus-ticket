@@ -21,6 +21,8 @@ func inventoryMask(board, drop int) (int64, error) { return inventory.SegmentMas
 
 const (
 	serviceFeePoisha = 5000 // ৳50 platform service fee per booking
+	holdBurst        = 20   // seat holds one caller may open per minute
+	resendBurst      = 5    // ticket resends allowed per PNR per hour
 	holdTTL          = 10 * time.Minute
 )
 
@@ -35,12 +37,12 @@ type holdRequest struct {
 }
 
 type priceBreakdown struct {
-	FarePoisha       int64 `json:"fare_poisha"`
-	SeatCount        int   `json:"seat_count"`
-	BasePoisha       int64 `json:"base_poisha"`
-	ServiceFeePoisha int64 `json:"service_fee_poisha"`
-	DiscountPoisha   int64 `json:"discount_poisha"`
-	TotalPoisha      int64 `json:"total_poisha"`
+	FarePoisha       int64  `json:"fare_poisha"`
+	SeatCount        int    `json:"seat_count"`
+	BasePoisha       int64  `json:"base_poisha"`
+	ServiceFeePoisha int64  `json:"service_fee_poisha"`
+	DiscountPoisha   int64  `json:"discount_poisha"`
+	TotalPoisha      int64  `json:"total_poisha"`
 	CouponCode       string `json:"coupon_code,omitempty"`
 }
 
@@ -60,6 +62,19 @@ func (s *Server) handleCreateHold(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Channel == "" {
 		req.Channel = "WEB"
+	}
+
+	// A hold locks real inventory before any payment, so an unthrottled hold
+	// endpoint is an inventory-denial weapon: a script could hold every seat on
+	// every bus and never pay, and the seats would only free on TTL. Cap how
+	// often one caller may open a hold. Redis being down fails open (Allow
+	// returns true), because a cache outage must not stop genuine sales — the
+	// hold TTL and the seat sweeper remain the real guarantee.
+	if s.cache != nil {
+		if ok, _ := s.cache.Allow(r.Context(), "rl:hold:"+clientIP(r), holdBurst, time.Minute); !ok {
+			fail(w, 429, "too_many_holds", "Too many booking attempts in a short time. Please wait a moment and try again.")
+			return
+		}
 	}
 
 	fare, err := s.fareFor(r, req.TripID, req.BoardSeq, req.DropSeq)
@@ -153,7 +168,7 @@ func (s *Server) handleGetHold(w http.ResponseWriter, r *http.Request) {
 	body := map[string]any{
 		"hold_id": holdID, "trip_id": tripID, "status": status,
 		"expires_at": expires, "seats": seats,
-		"expired":    time.Now().After(expires) && status == "HELD",
+		"expired": time.Now().After(expires) && status == "HELD",
 	}
 	// Re-emitted through priceBreakdown rather than passed through raw. The
 	// stored snapshot predates that struct and spells the seat count "seats",

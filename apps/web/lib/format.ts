@@ -50,6 +50,24 @@ export function relativeDay(iso: string): string {
   return dateOf(iso);
 }
 
+// The sales channels, in the words a person uses. A passenger reading their
+// booking history and a clerk reading a manifest should both see "On the bus",
+// never the enum ONBOARD. Defined once so the dashboard, the manifest and every
+// booking list say the same thing.
+export const CHANNEL_LABEL: Record<string, string> = {
+  WEB: 'Website',
+  APP: 'Mobile app',
+  COUNTER: 'Counter',
+  COUNTER_OFFLINE: 'Counter (offline)',
+  ONBOARD: 'On the bus',
+  AGENT: 'Agent',
+  PARTNER: 'Partner API',
+};
+
+export function channelLabel(code: string): string {
+  return CHANNEL_LABEL[code] ?? code.replace(/_/g, ' ').toLowerCase();
+}
+
 export const AMENITY_LABEL: Record<string, string> = {
   WIFI: 'Wi-Fi',
   CHARGING: 'Charging point',

@@ -115,6 +115,20 @@ type stopDTO struct {
 	At   time.Time `json:"at"`
 }
 
+// arrivalAt is the wall-clock time the bus reaches stop `seq`, given the origin
+// departure and the per-segment running minutes (offsets[k] spans stop k -> k+1,
+// indexed by from_stop_seq). This is the single source of truth for "when does
+// THIS passenger's bus reach THEIR stop" — an intercity bus that leaves Dhaka at
+// 22:00 does not reach Feni until hours later, and a mid-route passenger must be
+// told their own boarding time, never the origin's.
+func arrivalAt(depart time.Time, offsets map[int]int, seq int) time.Time {
+	var m int
+	for i := 0; i < seq; i++ {
+		m += offsets[i]
+	}
+	return depart.Add(time.Duration(m) * time.Minute)
+}
+
 func (s *Server) handleTrip(w http.ResponseWriter, r *http.Request) {
 	tripID := r.PathValue("tripID")
 	board := queryInt(r, "board", 0)

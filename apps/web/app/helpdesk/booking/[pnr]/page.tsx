@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/api';
 import { sget, spost } from '@/lib/staff';
 import { ErrorNotice, Loading, StatusPill } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
-import { dateTimeOf } from '@/lib/format';
+import { dateTimeOf, channelLabel } from '@/lib/format';
 
 // The booking timeline.
 //
@@ -40,6 +40,10 @@ export default function TimelinePage({ params }: { params: Promise<{ pnr: string
   const [subject, setSubject] = useState('');
   const [note, setNote] = useState('');
   const [flash, setFlash] = useState('');
+  const [showRefund, setShowRefund] = useState(false);
+  const [refundReason, setRefundReason] = useState('');
+  const [overrideTk, setOverrideTk] = useState('');
+  const [acting, setActing] = useState(false);
 
   const load = useCallback(() => {
     sget<{ booking: Booking; timeline: Event[]; gaps: string[] }>(`/helpdesk/timeline/${pnr}`)
@@ -62,6 +66,33 @@ export default function TimelinePage({ params }: { params: Promise<{ pnr: string
     }
   };
 
+  const resend = async () => {
+    setActing(true); setError('');
+    try {
+      await spost(`/helpdesk/bookings/${pnr}/resend`, {});
+      setFlash('Confirmation resent to the passenger.');
+      load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'The confirmation could not be resent.');
+    } finally { setActing(false); }
+  };
+
+  const refund = async () => {
+    if (!refundReason.trim()) { setError('Give a reason for the refund.'); return; }
+    setActing(true); setError('');
+    try {
+      const override_poisha = overrideTk.trim() ? Math.round(Number(overrideTk) * 100) : 0;
+      const r = await spost<{ refund_poisha: number }>(`/helpdesk/bookings/${pnr}/refund`, {
+        reason: refundReason, override_poisha,
+      });
+      setFlash(`Refunded ৳${(r.refund_poisha / 100).toLocaleString('en-IN')} to the gateway.`);
+      setShowRefund(false); setRefundReason(''); setOverrideTk('');
+      load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'The refund could not be completed.');
+    } finally { setActing(false); }
+  };
+
   if (loading) return <Loading rows={3} />;
   if (error) return <ErrorNotice message={error} />;
   if (!booking) return null;
@@ -73,7 +104,8 @@ export default function TimelinePage({ params }: { params: Promise<{ pnr: string
         sub={`${booking.operator} · ${dateTimeOf(booking.depart_at)}`}
         actions={
           <>
-            <Link className="btn btn-ghost" href={`/manage/${pnr}`}>Manage booking</Link>
+            <button className="btn btn-ghost" disabled={acting} onClick={resend}>Resend ticket</button>
+            <button className="btn btn-ghost" onClick={() => setShowRefund((v) => !v)}>Refund</button>
             <button className="btn btn-brand" onClick={() => setCaseOpen((v) => !v)}>Open a case</button>
             <Link className="btn btn-ghost" href="/helpdesk">New search</Link>
           </>
@@ -101,10 +133,41 @@ export default function TimelinePage({ params }: { params: Promise<{ pnr: string
         </div>
       )}
 
+      {showRefund && (
+        <div className="card card-pad stack" style={{ maxWidth: 520 }}>
+          <div>
+            <strong>Refund this booking</strong>
+            <p className="small muted" style={{ margin: '.2rem 0 0' }}>
+              The cancellation policy decides the amount. Leave the override blank
+              for the policy figure, or enter a goodwill amount up to what was paid.
+              A cash counter sale is refunded at the counter, not here.
+            </p>
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="rreason">Reason</label>
+            <input id="rreason" className="input" value={refundReason}
+                   onChange={(e) => setRefundReason(e.target.value)}
+                   placeholder="Bus cancelled, goodwill, duplicate charge…" />
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="rover">Goodwill override (৳, optional)</label>
+            <input id="rover" className="input tnum" inputMode="decimal" value={overrideTk}
+                   onChange={(e) => setOverrideTk(e.target.value)}
+                   placeholder="Leave blank to use the policy" />
+          </div>
+          <div className="row">
+            <button className="btn btn-primary" disabled={acting || !refundReason} onClick={refund}>
+              Refund to gateway
+            </button>
+            <button className="btn btn-ghost" onClick={() => setShowRefund(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       <div className="card card-pad">
         <dl className="kv">
           <dt>Status</dt><dd><StatusPill status={booking.status} /></dd>
-          <dt>Sold via</dt><dd>{booking.channel.replace(/_/g, ' ').toLowerCase()}</dd>
+          <dt>Sold via</dt><dd>{channelLabel(booking.channel)}</dd>
           <dt>Paid</dt><dd><Money poisha={booking.total_poisha} decimals /></dd>
           <dt>Contact</dt><dd className="mono">{booking.phone}{booking.email ? ` · ${booking.email}` : ''}</dd>
           <dt>Booked</dt><dd>{dateTimeOf(booking.created_at)}</dd>

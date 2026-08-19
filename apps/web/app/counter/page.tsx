@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { api, ApiError, type Seat, type SearchResult } from '@/lib/api';
+import { api, ApiError, type Seat, type SearchResult, type Ticket } from '@/lib/api';
+import { QrCode } from '@/components/QrCode';
 import { sget, spost } from '@/lib/staff';
 import { queue, quotaCache, terminalId, type QuotaSeat } from '@/lib/offline';
 import { SeatMap } from '@/components/SeatMap';
@@ -149,14 +150,118 @@ export default function CounterSellPage() {
       {offline
         ? <OfflineSale ctx={ctx} onQueued={() => setPending(queue.all().length)} />
         : <OnlineSale ctx={ctx} onSold={refresh} />}
+
+      {!offline && ctx?.shift && <TicketActions ctx={ctx} onChanged={refresh} />}
     </div>
+  );
+}
+
+/* --------------------------------------------------------- ticket actions -- */
+
+// The clerk's post-sale desk: reprint a boarding pass, or refund a cash sale.
+// A refund shows the cancellation policy's figure BEFORE it is paid — the fee is
+// not a surprise the passenger discovers at the drawer — and the cash comes out
+// of the open shift so the close still reconciles.
+function TicketActions({ ctx, onChanged }: { ctx: CounterContext | null; onChanged: () => void }) {
+  const { t, fmt } = useLang();
+  const [pnr, setPnr] = useState('');
+  const [quote, setQuote] = useState<{ refund_pct: number; refund_poisha: number; total_poisha: number } | null>(null);
+  const [tickets, setTickets] = useState<Ticket[] | null>(null);
+  const [reason, setReason] = useState('');
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const reset = () => { setQuote(null); setTickets(null); setReason(''); setMsg(''); setError(''); };
+
+  async function reprint() {
+    reset(); setBusy(true);
+    try {
+      const res = await spost<{ status: string; tickets: Ticket[] }>('/counter/reprint', { pnr });
+      setTickets(res.tickets); setMsg(t('co.manage.reprinted'));
+    } catch (e) { setError(errorText(t, e as ApiError)); }
+    finally { setBusy(false); }
+  }
+
+  async function lookupRefund() {
+    reset(); setBusy(true);
+    try {
+      const q = await sget<{ refund_pct: number; refund_poisha: number; total_poisha: number }>(
+        `/bookings/${encodeURIComponent(pnr)}/cancellation-quote`);
+      setQuote(q);
+    } catch (e) { setError(errorText(t, e as ApiError)); }
+    finally { setBusy(false); }
+  }
+
+  async function doRefund() {
+    if (!reason.trim()) { setError(t('co.manage.needReason')); return; }
+    setBusy(true); setError('');
+    try {
+      const res = await spost<{ refund_poisha: number; status: string }>(
+        '/counter/refunds', { pnr, shift_id: ctx?.shift?.shift_id ?? '', reason });
+      setMsg(t('co.manage.refunded', { amount: fmt.taka(res.refund_poisha) }));
+      setQuote(null); setReason(''); onChanged();
+    } catch (e) { setError(errorText(t, e as ApiError)); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <details className="card card-pad">
+      <summary style={{ cursor: 'pointer', fontWeight: 600 }}>{t('co.manage.title')}</summary>
+      <p className="small muted" style={{ marginTop: '.5rem' }}>{t('co.manage.hint')}</p>
+      <div className="row" style={{ gap: '.5rem', alignItems: 'flex-end' }}>
+        <div className="field" style={{ flex: '1 1 160px' }}>
+          <label className="label" htmlFor="mng-pnr">{t('co.manage.pnr')}</label>
+          <input id="mng-pnr" className="input mono" value={pnr}
+                 onChange={(e) => { setPnr(e.target.value.toUpperCase()); reset(); }} />
+        </div>
+        <button className="btn btn-ghost" disabled={!pnr || busy} onClick={reprint}>{t('co.manage.reprint')}</button>
+        <button className="btn btn-ghost" disabled={!pnr || busy} onClick={lookupRefund}>{t('co.manage.refund')}</button>
+      </div>
+
+      {error && <ErrorNotice message={error} />}
+      {msg && <div className="notice notice-info" role="status">{msg}</div>}
+
+      {tickets && (
+        <div className="row" style={{ gap: '1rem', marginTop: '.8rem', flexWrap: 'wrap' }}>
+          {tickets.filter((tk) => tk.qr_token).map((tk) => (
+            <div key={tk.seat_no} className="stack-sm" style={{ alignItems: 'center' }}>
+              <QrCode value={tk.qr_token} size={110} />
+              <span className="small"><strong className="mono">{tk.seat_no}</strong> {tk.passenger}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {quote && (
+        <div className="stack" style={{ marginTop: '.8rem' }}>
+          <div className="notice notice-warn">
+            {t('co.manage.quote', {
+              amount: fmt.taka(quote.refund_poisha),
+              total: fmt.taka(quote.total_poisha),
+              pct: String(quote.refund_pct),
+            })}
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="mng-reason">{t('co.manage.reason')}</label>
+            <input id="mng-reason" className="input" value={reason}
+                   onChange={(e) => setReason(e.target.value)} />
+          </div>
+          <button className="btn btn-primary" disabled={busy} onClick={doRefund}>
+            {t('co.manage.confirm')} · {fmt.taka(quote.refund_poisha)}
+          </button>
+        </div>
+      )}
+    </details>
   );
 }
 
 /* ------------------------------------------------------------------ online -- */
 
+interface Concession { code: string; label: string; label_bn: string; discount_bp: number }
+
 function OnlineSale({ ctx, onSold }: { ctx: CounterContext | null; onSold: () => void }) {
-  const { t, fmt } = useLang();
+  const { t, fmt, lang } = useLang();
   const [from, setFrom] = useState('Dhaka');
   const [to, setTo] = useState('Chattogram');
   const [date, setDate] = useState(isoDate(new Date()));
@@ -167,6 +272,8 @@ function OnlineSale({ ctx, onSold }: { ctx: CounterContext | null; onSold: () =>
   const [seats, setSeats] = useState<Seat[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
+  const [concTypes, setConcTypes] = useState<Concession[]>([]);
+  const [conc, setConc] = useState<Record<string, string>>({});
   const [phone, setPhone] = useState('');
   const [method, setMethod] = useState('CASH');
   const [tendered, setTendered] = useState('');
@@ -176,6 +283,11 @@ function OnlineSale({ ctx, onSold }: { ctx: CounterContext | null; onSold: () =>
   const [receipt, setReceipt] = useState<SaleReceipt | null>(null);
 
   const fromRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    sget<{ concessions: Concession[] }>('/counter/concessions')
+      .then((r) => setConcTypes(r.concessions)).catch(() => {});
+  }, []);
 
   const search = useCallback(async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -191,7 +303,7 @@ function OnlineSale({ ctx, onSold }: { ctx: CounterContext | null; onSold: () =>
   }, [from, to, date]);
 
   const openTrip = useCallback(async (tr: SearchResult) => {
-    setTrip(tr); setPicked([]); setNames({}); setError(''); setReceipt(null);
+    setTrip(tr); setPicked([]); setNames({}); setConc({}); setError(''); setReceipt(null);
     const map = await api.seatmap(tr.trip_id, tr.board_seq, tr.drop_seq);
     setSeats(map.seats);
   }, []);
@@ -207,7 +319,13 @@ function OnlineSale({ ctx, onSold }: { ctx: CounterContext | null; onSold: () =>
 
   // The server's fee, not a copy of it.
   const fee = ctx?.service_fee_poisha ?? 0;
-  const total = trip ? trip.fare_poisha * picked.length + fee : 0;
+  // A client-side estimate of the concession, so the clerk sees the reduced
+  // amount before charging. The server recomputes it — this only shows it.
+  const bpOf = (code: string) => concTypes.find((c) => c.code === code)?.discount_bp ?? 0;
+  const discount = trip
+    ? picked.reduce((sum, s) => sum + (conc[s] ? Math.floor(trip.fare_poisha * bpOf(conc[s]) / 10000) : 0), 0)
+    : 0;
+  const total = trip ? trip.fare_poisha * picked.length + fee - discount : 0;
   const sellable = !!trip && picked.length > 0 && !!phone && !(method === 'CASH' && !ctx?.shift);
 
   const sell = async () => {
@@ -221,11 +339,12 @@ function OnlineSale({ ctx, onSold }: { ctx: CounterContext | null; onSold: () =>
         board_seq: trip.board_seq,
         drop_seq: trip.drop_seq,
         passengers: picked.map((s) => ({ seat_no: s, full_name: names[s] || 'Passenger' })),
+        concessions: picked.map((s) => conc[s] || ''),
         phone,
         method,
       });
       setReceipt({ ...res, trip, tendered_poisha: Math.round(Number(tendered || 0) * 100) });
-      setPicked([]); setNames({}); setPhone(''); setTendered(''); setConfirming(false);
+      setPicked([]); setNames({}); setConc({}); setPhone(''); setTendered(''); setConfirming(false);
       onSold();
       void reloadSeats();
     } catch (err) {
@@ -378,6 +497,18 @@ function OnlineSale({ ctx, onSold }: { ctx: CounterContext | null; onSold: () =>
                   id={`pax-${s}`} className="input" placeholder={t('co.paxName')}
                   value={names[s] ?? ''} onChange={(e) => setNames({ ...names, [s]: e.target.value })}
                 />
+                {concTypes.length > 0 && (
+                  <select className="select" style={{ marginTop: '.35rem' }}
+                          aria-label={t('co.concession')}
+                          value={conc[s] ?? ''} onChange={(e) => setConc({ ...conc, [s]: e.target.value })}>
+                    <option value="">{t('co.fullFare')}</option>
+                    {concTypes.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {(lang === 'bn' ? c.label_bn : c.label)} · {Math.round(c.discount_bp / 100)}%
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             ))}
             <div className="field">
@@ -400,6 +531,12 @@ function OnlineSale({ ctx, onSold }: { ctx: CounterContext | null; onSold: () =>
               <dt>{t('co.fareLine', { count: picked.length })}</dt>
               <dd><Money poisha={trip.fare_poisha * picked.length} /></dd>
               <dt>{t('co.serviceFee')}</dt><dd><Money poisha={fee} /></dd>
+              {discount > 0 && (
+                <>
+                  <dt>{t('co.concessionLine')}</dt>
+                  <dd>−<Money poisha={discount} /></dd>
+                </>
+              )}
               <dt><strong>{t('co.total')}</strong></dt>
               <dd><strong><Money poisha={total} decimals /></strong></dd>
             </dl>

@@ -6,6 +6,7 @@ import { sget, spost, can } from '@/lib/staff';
 import { useSession } from '@/components/StaffShell';
 import { ErrorNotice, Loading } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
+import RouteBuilder from '@/components/RouteBuilder';
 
 // Routes and per-leg fares.
 //
@@ -29,6 +30,7 @@ export default function RoutesPage() {
   const [error, setError] = useState('');
   const [flash, setFlash] = useState('');
   const [loading, setLoading] = useState(true);
+  const [building, setBuilding] = useState(false);
 
   const load = useCallback(() => {
     Promise.all([
@@ -63,12 +65,16 @@ export default function RoutesPage() {
   };
 
   const mayEdit = can(session?.identity ?? null, 'fare.write');
+  const mayEditRoutes = can(session?.identity ?? null, 'route.write');
 
   if (loading) return <Loading rows={2} />;
 
   return (
     <div className="stack">
-      <PageHead title="Routes & fares" sub="A fare is published per leg, and every leg can be sold separately" />
+      <PageHead title="Routes & fares" sub="A fare is published per leg, and every leg can be sold separately"
+        actions={mayEditRoutes && (
+          <button className="btn btn-brand" onClick={() => setBuilding(true)}>New route</button>
+        )} />
       {error && <ErrorNotice message={error} />}
       {flash && <div className="notice notice-info">{flash}</div>}
 
@@ -140,6 +146,11 @@ export default function RoutesPage() {
             holds keep the price they were quoted.
           </p>
         </div>
+      )}
+
+      {building && (
+        <RouteBuilder onClose={() => setBuilding(false)}
+                      onSaved={() => { setBuilding(false); setFlash('Route created. Publish a fare for each leg you want to sell.'); load(); }} />
       )}
     </div>
   );

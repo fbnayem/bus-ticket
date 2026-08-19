@@ -1,12 +1,16 @@
 package httpapi
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/busticket/platform/services/commerce/commerce"
 	"github.com/busticket/platform/services/staff/staff"
 )
 
@@ -27,6 +31,8 @@ func (s *Server) helpdeskRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /api/v1/helpdesk/cases", s.guard("support.write", s.handleCreateCase))
 	m.HandleFunc("POST /api/v1/helpdesk/cases/{caseID}/notes", s.guard("support.write", s.handleAddNote))
 	m.HandleFunc("POST /api/v1/helpdesk/cases/{caseID}/status", s.guard("support.write", s.handleCaseStatus))
+	m.HandleFunc("POST /api/v1/helpdesk/bookings/{pnr}/refund", s.guard("support.write", s.handleSupportRefund))
+	m.HandleFunc("POST /api/v1/helpdesk/bookings/{pnr}/resend", s.guard("support.write", s.handleSupportResend))
 }
 
 func (s *Server) handleHelpdeskSearch(w http.ResponseWriter, r *http.Request, _ *staff.Identity) {
@@ -436,4 +442,112 @@ func (s *Server) handleCaseStatus(w http.ResponseWriter, r *http.Request, id *st
 	}
 	s.stf.Audit(r.Context(), id, "support.case.status", "case:"+caseID, req.Status)
 	writeJSON(w, 200, map[string]any{"case_id": caseID, "status": req.Status})
+}
+
+// ------------------------------------------------------------ act on a booking --
+
+// Until now this console could only read. These two endpoints let support do the
+// two things a passenger most often calls about and cannot always do themselves:
+// get their money back, and get their ticket resent. Support is platform-wide, so
+// there is no operator scope here — but a gateway refund is refused on a cash sale
+// (that money is in a drawer, not a gateway), and a goodwill refund can never
+// exceed what was paid. Every action is audited.
+
+type supportRefundRequest struct {
+	Reason         string `json:"reason"`
+	OverridePoisha int64  `json:"override_poisha"`
+}
+
+func (s *Server) handleSupportRefund(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	ctx := r.Context()
+	pnr := r.PathValue("pnr")
+	var req supportRefundRequest
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "That request could not be read.")
+		return
+	}
+	if req.Reason == "" {
+		fail(w, 400, "reason_required", "A refund needs a reason for the record.")
+		return
+	}
+
+	var status, provider string
+	var total int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT b.status, b.total_poisha,
+		       COALESCE((SELECT provider FROM commerce.payments p
+		                  WHERE p.booking_id = b.booking_id AND p.status = 'PAID'
+		                  ORDER BY p.created_at DESC LIMIT 1), '')
+		  FROM commerce.bookings b WHERE b.pnr = upper($1)`, pnr).Scan(&status, &total, &provider)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "booking_not_found", "No booking with that PNR.")
+		return
+	}
+	if err != nil {
+		fail(w, 500, "query_failed", "Could not load that booking.")
+		return
+	}
+	if status != "TICKETED" && status != "CONFIRMED" && status != "PAID" {
+		fail(w, 409, "not_refundable", "This booking cannot be refunded in its current state.")
+		return
+	}
+	// A cash sale's money is in a counter drawer, not the gateway; it is refunded
+	// at the counter, and settling it here would credit a gateway that never held it.
+	if provider == "" || provider == "CASH" {
+		fail(w, 409, "cash_refund_at_counter", "This was a cash sale — refund it at the counter, not here.")
+		return
+	}
+	if req.OverridePoisha > total {
+		fail(w, 400, "override_too_large", "A refund cannot be more than the passenger paid.")
+		return
+	}
+
+	amount, err := s.com.SupportRefund(ctx, pnr, req.OverridePoisha, req.Reason)
+	if errors.Is(err, commerce.ErrRefundExceedsPaid) {
+		fail(w, 400, "override_too_large", "A refund cannot be more than the passenger paid.")
+		return
+	}
+	if errors.Is(err, commerce.ErrNotCancellable) {
+		// Lost a race with another refund of the same booking — it is already
+		// being refunded. Not an error the agent caused, and no money moved here.
+		fail(w, 409, "already_refunded", "This booking is already being refunded.")
+		return
+	}
+	if err != nil {
+		s.log.Error("support refund", "err", err)
+		fail(w, 500, "refund_failed", "The refund could not be completed.")
+		return
+	}
+	s.stf.Audit(ctx, id, "support.booking.refund", "booking:"+pnr,
+		map[string]any{"refund_poisha": amount, "override": req.OverridePoisha, "reason": req.Reason})
+	writeJSON(w, 200, map[string]any{"pnr": pnr, "refund_poisha": amount, "status": "REFUNDED"})
+}
+
+func (s *Server) handleSupportResend(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	ctx := r.Context()
+	pnr := r.PathValue("pnr")
+	var status string
+	err := s.pool.QueryRow(ctx,
+		`SELECT status FROM commerce.bookings WHERE pnr = upper($1)`, pnr).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "booking_not_found", "No booking with that PNR.")
+		return
+	}
+	if err != nil {
+		fail(w, 500, "query_failed", "Could not load that booking.")
+		return
+	}
+	// Only a live ticket is worth resending; a cancelled one would tell the
+	// passenger they are travelling when they are not.
+	if status != "TICKETED" && status != "CONFIRMED" {
+		fail(w, 409, "not_deliverable", "Only a live ticket can be resent.")
+		return
+	}
+	if err := s.com.ResendConfirmation(ctx, pnr); err != nil {
+		s.log.Error("support resend", "err", err)
+		fail(w, 500, "resend_failed", "The confirmation could not be resent.")
+		return
+	}
+	s.stf.Audit(ctx, id, "support.booking.resend", "booking:"+pnr, nil)
+	writeJSON(w, 200, map[string]any{"pnr": pnr, "resent": true})
 }

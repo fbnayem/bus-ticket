@@ -89,8 +89,8 @@ func (s *Server) handleOwnerPnl(w http.ResponseWriter, r *http.Request, id *staf
 		    LEFT JOIN agent.commissions ac ON ac.booking_id = bk.booking_id
 		   WHERE bk.operator_id = $1::uuid
 		     AND bk.status IN ('TICKETED','CONFIRMED','COMPLETED')
-		     AND bk.created_at >= $2::date
-		     AND bk.created_at <  ($3::date + 1)
+		     AND (bk.created_at AT TIME ZONE 'Asia/Dhaka')::date >= $2::date
+		     AND (bk.created_at AT TIME ZONE 'Asia/Dhaka')::date <= $3::date
 		   GROUP BY t.bus_id
 		),
 		cost AS (
@@ -218,7 +218,8 @@ func (s *Server) handleOwnerSalesByStaff(w http.ResponseWriter, r *http.Request,
 		 WHERE bk.operator_id = $1::uuid
 		   AND bk.sold_by IS NOT NULL
 		   AND bk.status IN ('TICKETED','CONFIRMED','COMPLETED')
-		   AND bk.created_at >= $2::date AND bk.created_at < ($3::date + 1)
+		   AND (bk.created_at AT TIME ZONE 'Asia/Dhaka')::date >= $2::date
+		   AND (bk.created_at AT TIME ZONE 'Asia/Dhaka')::date <= $3::date
 		 GROUP BY su.staff_id, su.full_name
 		 ORDER BY gross DESC`, op, from, to)
 	if err != nil {

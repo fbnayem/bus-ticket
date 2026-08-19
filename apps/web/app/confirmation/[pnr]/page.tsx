@@ -71,7 +71,10 @@ export default function ConfirmationPage({ params }: { params: Promise<{ pnr: st
         <dl className="kv" style={{ textAlign: 'left', marginTop: '.5rem' }}>
           <dt>{t('trip.operator')}</dt><dd>{booking.brand}</dd>
           <dt>{t('confirm.journey')}</dt><dd>{booking.origin} → {booking.destination}</dd>
-          <dt>{t('trip.departs')}</dt><dd>{fmt.dateTime(booking.depart_at)}</dd>
+          {/* board_at is this passenger's own pickup time, which is depart_at
+              only when they board at the origin; a mid-route boarder must see
+              when the bus reaches THEIR stop. */}
+          <dt>{t('trip.departs')}</dt><dd>{fmt.dateTime(booking.board_at)}</dd>
           <dt>{t('ticket.seats')}</dt><dd className="mono">{booking.seats.join(', ')}</dd>
           {/* Only called "paid" once the money is actually confirmed. */}
           <dt>{ticketed ? t('money.paid') : t('money.total')}</dt>

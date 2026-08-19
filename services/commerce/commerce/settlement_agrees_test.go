@@ -72,51 +72,56 @@ func TestSettlementCommissionAgreesWithTheLedger(t *testing.T) {
 // The platform must not pay out cash it never received.
 //
 // About forty percent of the demo operator's sales are taken in cash by their
-// own counter clerks and conductors — Tk 303,590 of Tk 761,840. The passenger
-// has already handed the operator that money. Paying them their share of it
-// again is not a rounding error, it is the whole amount twice.
+// own counter clerks and conductors. The passenger has already handed the
+// operator that money. Paying them their share of it again is not a rounding
+// error, it is the whole amount twice.
 //
-// Two halves, and both matter: every operator-held cash sale is deducted, and
-// nothing else is. A deduction that also caught card sales on the website would
-// be just as wrong in the other direction, and would look just as balanced.
+// What decides whether the operator already holds the cash is HOW THE BOOKING
+// WAS PAID, not which channel it came through. A counter clerk who takes a card
+// or a bKash payment has sent that money to the platform's gateway exactly like
+// a website sale — the drawer never saw it. Keying the deduction on the channel
+// (COUNTER) instead of the payment (a CASH provider) charged the operator the
+// whole fare of every counter card sale, for money the platform itself
+// collected. So this proof is keyed on the payment, and both halves matter:
+// every CASH-paid booking is deducted, and nothing else is.
 func TestSettlementDeductsOnlyTheCashTheOperatorAlreadyHas(t *testing.T) {
 	requireDB(t)
 	ctx := context.Background()
 	settlementID := calculableSettlement(t, ctx)
 
-	// Stated here as a literal, deliberately, rather than read from
-	// OperatorHeldCashChannels. A test that asserts against the same list the
-	// code uses moves whenever the code moves: dropping ONBOARD from that
-	// variable made the platform pay every on-board sale twice again, and this
-	// proof stayed green because both sides had changed together. What is being
-	// checked is which channels put money in the operator's own hands, and that
-	// is a fact about buses and counters, not about a Go slice.
-	cashChannels := []string{"COUNTER", "COUNTER_OFFLINE", "ONBOARD"}
+	// hasCash is a fact about the payment, checked directly against the payments
+	// ledger rather than inferred from the channel — a card sale at a counter is
+	// a COUNTER booking that the operator never took cash for.
+	const hasCash = `EXISTS (SELECT 1 FROM commerce.payments p
+	                          WHERE p.booking_id = si.booking_id AND p.status='PAID'
+	                            AND p.provider='CASH')`
 
-	// Half one: the cash channels are all deducted, in full.
+	// Half one: every CASH-paid booking is deducted, net of any cash refund the
+	// operator has already handed back out of the drawer.
 	var wrongCash int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM finance.settlement_items si
-		  JOIN commerce.bookings b ON b.booking_id = si.booking_id
 		 WHERE si.settlement_id = $1::uuid
-		   AND b.channel = ANY($2::text[])
-		   AND si.cash_collected_poisha <> b.total_poisha`,
-		settlementID, cashChannels).Scan(&wrongCash); err != nil {
+		   AND `+hasCash+`
+		   AND si.cash_collected_poisha <> si.gross_poisha
+		         - COALESCE((SELECT sum(rf.amount_poisha) FROM commerce.refunds rf
+		                      WHERE rf.booking_id = si.booking_id AND rf.status='SUCCESS'),0)`,
+		settlementID).Scan(&wrongCash); err != nil {
 		t.Fatal(err)
 	}
 	if wrongCash != 0 {
-		t.Errorf("%d cash-channel item(s) were not deducted at the amount collected", wrongCash)
+		t.Errorf("%d cash-paid item(s) were not deducted at the amount the drawer holds", wrongCash)
 	}
 
-	// Half two: nothing the platform actually received is deducted.
+	// Half two: nothing the platform actually received (card, MFS, web, agent) is
+	// deducted — including a card sale that happened to be taken at a counter.
 	var wrongCard int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM finance.settlement_items si
-		  JOIN commerce.bookings b ON b.booking_id = si.booking_id
 		 WHERE si.settlement_id = $1::uuid
-		   AND NOT (b.channel = ANY($2::text[]))
+		   AND NOT `+hasCash+`
 		   AND si.cash_collected_poisha <> 0`,
-		settlementID, cashChannels).Scan(&wrongCard); err != nil {
+		settlementID).Scan(&wrongCard); err != nil {
 		t.Fatal(err)
 	}
 	if wrongCard != 0 {

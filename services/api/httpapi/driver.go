@@ -33,6 +33,36 @@ func (s *Server) driverRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/v1/driver/incidents", s.guard("driver.trip", s.handleListIncidents))
 }
 
+// tripOperatorID returns the operator that owns a trip. A trip id is public —
+// search hands it out for every operator — so any driver/crew action that reads
+// or writes against one must confirm it belongs to the caller's operator first,
+// or the trip id becomes a key into a competitor's operation.
+func (s *Server) tripOperatorID(ctx context.Context, tripID string) (string, error) {
+	var op string
+	err := s.pool.QueryRow(ctx,
+		`SELECT operator_id::text FROM catalog.trips WHERE trip_id=$1::uuid`, tripID).Scan(&op)
+	return op, err
+}
+
+// ownsTrip writes the appropriate failure and returns false when the caller may
+// not act on this trip. Platform staff (no operator scope) may act on any.
+func (s *Server) ownsTrip(w http.ResponseWriter, r *http.Request, id *staff.Identity, tripID string) bool {
+	op, err := s.tripOperatorID(r.Context(), tripID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "trip_not_found", "No trip with that reference.")
+		return false
+	}
+	if err != nil {
+		fail(w, 500, "query_failed", "Could not check that trip.")
+		return false
+	}
+	if id.OperatorID != "" && id.OperatorID != op {
+		fail(w, 403, "forbidden", "That trip belongs to another operator.")
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleDriverTrips(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
 	// A crew member sees the trips they are rostered on. If nobody has
 	// assigned them yet, they see today's departures for their operator so
@@ -116,6 +146,9 @@ func (s *Server) handlePosition(w http.ResponseWriter, r *http.Request, id *staf
 		fail(w, 400, "bad_position", "A position needs a latitude and a longitude.")
 		return
 	}
+	if !s.ownsTrip(w, r, id, tripID) {
+		return
+	}
 	if _, err := s.pool.Exec(r.Context(), `
 		INSERT INTO ops.bus_positions (trip_id, lat, lng, speed_kph, heading, source)
 		VALUES ($1::uuid, $2, $3, NULLIF($4,0), NULLIF($5,0), 'DRIVER_APP')`,
@@ -145,6 +178,13 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request, id *staff.Id
 	}
 	if req.ClientRef == "" {
 		fail(w, 400, "client_ref_required", "Every scan needs a reference from the device.")
+		return
+	}
+	// A crew member may only scan into their own operator's trip. Without this a
+	// helper who knows a competitor's PNR/QR and trip id could flip that
+	// passenger's ticket to BOARDED, so the real crew's later scan reads
+	// ALREADY_BOARDED and a genuine passenger is challenged at the door.
+	if req.TripID != "" && !s.ownsTrip(w, r, id, req.TripID) {
 		return
 	}
 
@@ -255,15 +295,19 @@ func scanMessage(result, seat string) string {
 	}
 }
 
-func (s *Server) handleScanLog(w http.ResponseWriter, r *http.Request, _ *staff.Identity) {
+func (s *Server) handleScanLog(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
 	tripID := r.URL.Query().Get("trip_id")
+	// Scoped to the caller's operator: an empty trip_id must not return the last
+	// 60 scans across every operator, and a supplied one must belong to them.
 	rows, err := s.pool.Query(r.Context(), `
-		SELECT COALESCE(pnr,''), COALESCE(seat_no,''), result, scanned_at,
+		SELECT COALESCE(sc.pnr,''), COALESCE(sc.seat_no,''), sc.result, sc.scanned_at,
 		       COALESCE(u.full_name,'')
 		  FROM ops.boarding_scans sc
 		  LEFT JOIN staff.staff_users u ON u.staff_id = sc.scanned_by
+		  JOIN catalog.trips t ON t.trip_id = sc.trip_id
 		 WHERE ($1='' OR sc.trip_id = $1::uuid)
-		 ORDER BY scanned_at DESC LIMIT 60`, tripID)
+		   AND ($2='' OR t.operator_id = $2::uuid)
+		 ORDER BY sc.scanned_at DESC LIMIT 60`, tripID, id.OperatorID)
 	if err != nil {
 		fail(w, 500, "query_failed", "Could not load scans.")
 		return
@@ -303,6 +347,9 @@ func (s *Server) handleReportIncident(w http.ResponseWriter, r *http.Request, id
 	if req.Severity == "" {
 		req.Severity = "LOW"
 	}
+	if !s.ownsTrip(w, r, id, req.TripID) {
+		return
+	}
 	// The incident and the event that tells somebody about it are written in one
 	// transaction. A breakdown recorded but not raised is a bus nobody comes for.
 	var incidentID string
@@ -327,7 +374,7 @@ func (s *Server) handleReportIncident(w http.ResponseWriter, r *http.Request, id
 	writeJSON(w, 201, map[string]any{"incident_id": incidentID})
 }
 
-func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request, _ *staff.Identity) {
+func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
 	rows, err := s.pool.Query(r.Context(), `
 		SELECT i.incident_id::text, i.trip_id::text, i.kind, i.severity, i.note,
 		       i.created_at, COALESCE(u.full_name,''), r.name, t.depart_at
@@ -335,7 +382,8 @@ func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request, _ *
 		  LEFT JOIN staff.staff_users u ON u.staff_id = i.reported_by
 		  JOIN catalog.trips t ON t.trip_id = i.trip_id
 		  JOIN catalog.routes r ON r.route_id = t.route_id
-		 ORDER BY i.created_at DESC LIMIT 40`)
+		 WHERE ($1='' OR t.operator_id = $1::uuid)
+		 ORDER BY i.created_at DESC LIMIT 40`, id.OperatorID)
 	if err != nil {
 		fail(w, 500, "query_failed", "Could not load incidents.")
 		return

@@ -144,9 +144,19 @@ export interface Booking {
   pnr: string; booking_id: string; status: string; total_poisha: number;
   channel: string; created_at: string; trip_id: string;
   brand: string; bus_type: string; registration: string; depart_at: string;
+  board_at: string; arrive_at: string;
   origin: string; destination: string; board_seq: number; drop_seq: number;
-  phone: string; email: string; seats: string[]; tickets: Ticket[];
+  phone: string; email: string; vat_registered: boolean; seats: string[]; tickets: Ticket[];
   refund?: { status: string; amount_poisha: number };
+}
+
+export interface Invoice {
+  invoice_no: string; pnr: string; issued_at: string; depart_at: string;
+  seller: { name: string; bin: string }; seller_brand: string;
+  buyer: { name: string; phone?: string; email?: string };
+  origin: string; destination: string; is_ac: boolean; vat_exempt: boolean;
+  transport: { rate_bp: number; base_poisha: number; vat_poisha: number; gross_poisha: number };
+  platform_fee_poisha: number; discount_poisha: number; total_poisha: number;
 }
 
 export interface CancellationQuote {
@@ -174,7 +184,7 @@ export interface Offer {
 }
 
 export interface AccountBooking {
-  pnr: string; status: string; total_poisha: number; depart_at: string;
+  pnr: string; status: string; total_poisha: number; board_at: string;
   brand: string; origin: string; destination: string; seat_count: number; upcoming: boolean;
 }
 
@@ -240,6 +250,9 @@ export const api = {
     post<{ status: string; pnr: string; confirmed: boolean; first_delivery: boolean }>(
       '/payments/sandbox/complete', { payment_ref, outcome }),
 
+  invoice: (pnr: string) => get<Invoice>(`/bookings/${pnr}/invoice`),
+  resend: (pnr: string, phone: string) =>
+    post<{ pnr: string; resent: boolean }>(`/bookings/${pnr}/resend`, { phone }),
   cancellationQuote: (pnr: string) => get<CancellationQuote>(`/bookings/${pnr}/cancellation-quote`),
   cancel: (pnr: string, reason: string) => post<CancellationQuote>(`/bookings/${pnr}/cancel`, { reason }),
   settleRefund: (pnr: string) => post<{ status: string }>(`/bookings/${pnr}/settle-refund`),

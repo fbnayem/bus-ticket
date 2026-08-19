@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/api';
 import { sget } from '@/lib/staff';
 import { ErrorNotice, Loading, StatusPill } from '@/components/ui';
 import { PageHead, Money } from '@/components/staff-ui';
-import { dateTimeOf, timeOf } from '@/lib/format';
+import { dateTimeOf, timeOf, channelLabel } from '@/lib/format';
 
 interface Booking {
   pnr: string; status: string; channel: string; total_poisha: number;
@@ -41,7 +41,7 @@ export default function OperatorBookingsPage() {
           <select className="select" style={{ width: 190 }} value={channel}
                   onChange={(e) => setChannel(e.target.value)} aria-label="Filter by channel">
             <option value="">All channels</option>
-            {channels.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+            {channels.map((c) => <option key={c} value={c}>{channelLabel(c)}</option>)}
           </select>
         }
       />
@@ -63,7 +63,7 @@ export default function OperatorBookingsPage() {
                 <td>{timeOf(b.depart_at)}</td>
                 <td className="mono small">{b.seats}</td>
                 <td className="small">
-                  {b.channel.replace(/_/g, ' ').toLowerCase()}
+                  {channelLabel(b.channel)}
                   {(b.counter || b.agency) && (
                     <div className="muted" style={{ fontSize: '.74rem' }}>{b.counter || b.agency}</div>
                   )}

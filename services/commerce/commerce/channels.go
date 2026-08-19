@@ -36,25 +36,34 @@ const platformServiceFee = 5000 // ৳50, same as the website
 
 // CounterPostings splits a counter sale.
 //
+// full is the undiscounted price (fare×seats + service fee); discount is any
+// concession the operator granted a child, student or senior. The operator
+// alone absorbs it — platform revenue is computed on the FULL fare, never the
+// discounted one, exactly as CrewPostings handles an on-board discount. So the
+// only thing a concession changes on this journal is how much the operator is
+// paid; the platform's cut is identical with or without it. When discount is
+// zero (the ordinary sale) full == gross and this is the split it always was.
+//
 // Cash never touches a gateway, so there is no gateway fee and the debit lands
 // in Cash rather than Gateway Clearing. A counter MFS sale still pays the
 // gateway, so it looks like a web sale on the debit side.
-func CounterPostings(gross int64, method, operatorID, counterID string) []Posting {
-	base := gross - platformServiceFee
-	commission := base / 10
+func CounterPostings(full, discount int64, method, operatorID, counterID string) []Posting {
+	base := full - platformServiceFee
+	gross := full - discount // what the passenger actually pays
+	platform := base/10 + platformServiceFee
 	if method == "CASH" {
 		return []Posting{
-			{"1001", "DR", gross, counterID},              // Cash (this drawer)
-			{"2101", "CR", base - commission, operatorID}, // Operator Payable
-			{"4101", "CR", commission + platformServiceFee, ""},
+			{"1001", "DR", gross, counterID},             // Cash (this drawer)
+			{"2101", "CR", gross - platform, operatorID}, // Operator Payable — absorbs the concession
+			{"4101", "CR", platform, ""},                 // Platform Revenue, untouched by the discount
 		}
 	}
 	gatewayFee := gross * 15 / 1000
 	return []Posting{
 		{"1101", "DR", gross - gatewayFee, method},
 		{"5102", "DR", gatewayFee, method},
-		{"2101", "CR", base - commission, operatorID},
-		{"4101", "CR", commission + platformServiceFee, ""},
+		{"2101", "CR", gross - platform, operatorID},
+		{"4101", "CR", platform, ""},
 	}
 }
 
@@ -64,13 +73,13 @@ func CounterPostings(gross int64, method, operatorID, counterID string) []Postin
 // the drawer — there is no provider to wait for. That is the one legitimate
 // difference from the web flow, where only a verified webhook may confirm.
 func (s *Service) SettleCounterSale(ctx context.Context, bookingID, shiftID, method string) error {
-	var gross int64
+	var gross, discount int64
 	var operatorID, holdID, status, counterID string
 	var counter *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT total_poisha, operator_id::text, hold_id::text, status, counter_id::text
+		SELECT total_poisha, discount_poisha, operator_id::text, hold_id::text, status, counter_id::text
 		  FROM commerce.bookings WHERE booking_id = $1::uuid`, bookingID).
-		Scan(&gross, &operatorID, &holdID, &status, &counter)
+		Scan(&gross, &discount, &operatorID, &holdID, &status, &counter)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrBookingNotFound
 	}
@@ -107,8 +116,13 @@ func (s *Service) SettleCounterSale(ctx context.Context, bookingID, shiftID, met
 	if err := s.inv.ConfirmHold(ctx, holdID); err != nil {
 		return fmt.Errorf("confirm seats: %w", err)
 	}
+	// full is the undiscounted price; gross (total_poisha) is what the passenger
+	// pays after any concession. The payment recorded above is gross — the money
+	// that actually changed hands — while the ledger split is computed from full
+	// so the platform's commission sits on the published fare.
+	full := gross + discount
 	if err := s.Finalise(ctx, bookingID, "counter sale — "+method,
-		CounterPostings(gross, method, operatorID, counterID)); err != nil {
+		CounterPostings(full, discount, method, operatorID, counterID)); err != nil {
 		return err
 	}
 
@@ -461,29 +475,63 @@ func (s *Service) CalculateSettlement(ctx context.Context, operatorID, from, to 
 	// this was fixed: ৳14,781.00 posted, ৳14,350.16 recomputed, ৳430.84 adrift.
 	// discount_poisha is 0 for every channel that cannot discount, so this is
 	// the same arithmetic as before everywhere else.
+	// Three quantities per booking, each anchored to what the ledger already
+	// posted at sale and cancellation time:
+	//
+	//   commission  — the platform's cut on the UNDISCOUNTED base (see above).
+	//   refund      — the OPERATOR's share of any refund, not the whole amount.
+	//                 applyCancellation claws back only opRefund = refunded ×
+	//                 operatorShare / gross from the operator (2101); the rest
+	//                 came off platform revenue (4101). Subtracting the whole
+	//                 refund here billed the operator for the platform's own
+	//                 reversal — a full web refund fabricated an operator debt
+	//                 equal to the platform's commission on a booking that
+	//                 returned every poisha.
+	//   cash        — the cash the operator physically holds, decided by how the
+	//                 booking was actually PAID (a CASH payment), NOT by channel.
+	//                 A card or MFS sale at a counter reaches the platform's
+	//                 gateway exactly like a web sale (CounterPostings debits 1101,
+	//                 not the drawer), so the operator holds nothing and must be
+	//                 paid in full. Classifying by channel deducted the entire
+	//                 fare of every counter card sale, telling the operator it owed
+	//                 the platform for money the platform had itself collected.
+	//                 Net of any cash refund already paid back out of the drawer.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO finance.settlement_items
 			(settlement_id, booking_id, gross_poisha, commission_poisha, refund_poisha,
 			 cash_collected_poisha, net_poisha)
 		SELECT $1::uuid, b.booking_id, b.total_poisha,
-		       (((b.total_poisha + b.discount_poisha) - $4::bigint) / 10) + $4::bigint,
-		       COALESCE(r.refunded, 0),
-		       CASE WHEN b.channel = ANY($6::text[]) THEN b.total_poisha ELSE 0 END,
-		       b.total_poisha - ((((b.total_poisha + b.discount_poisha) - $4::bigint) / 10) + $4::bigint) - COALESCE(r.refunded, 0)
-		         - CASE WHEN b.channel = ANY($6::text[]) THEN b.total_poisha ELSE 0 END
+		       comm.commission,
+		       CASE WHEN b.total_poisha > 0
+		            THEN r.refunded * (b.total_poisha - comm.commission) / b.total_poisha
+		            ELSE 0 END,
+		       CASE WHEN paid.cash THEN b.total_poisha - r.refunded ELSE 0 END,
+		       (b.total_poisha - comm.commission)
+		         - CASE WHEN b.total_poisha > 0
+		                THEN r.refunded * (b.total_poisha - comm.commission) / b.total_poisha
+		                ELSE 0 END
+		         - CASE WHEN paid.cash THEN b.total_poisha - r.refunded ELSE 0 END
 		  FROM commerce.bookings b
+		  CROSS JOIN LATERAL (
+		        SELECT (((b.total_poisha + b.discount_poisha) - $4::bigint) / 10) + $4::bigint AS commission
+		  ) comm
 		  LEFT JOIN LATERAL (
 		        SELECT COALESCE(sum(rf.amount_poisha),0) AS refunded
 		          FROM commerce.refunds rf
 		         WHERE rf.booking_id = b.booking_id AND rf.status = 'SUCCESS'
 		  ) r ON true
+		  CROSS JOIN LATERAL (
+		        SELECT EXISTS (SELECT 1 FROM commerce.payments p
+		                        WHERE p.booking_id = b.booking_id AND p.status = 'PAID'
+		                          AND p.provider = 'CASH') AS cash
+		  ) paid
 		 WHERE b.operator_id = $2::uuid
-		   AND b.created_at >= $3::date
-		   AND b.created_at < ($5::date + 1)
+		   AND (b.created_at AT TIME ZONE 'Asia/Dhaka')::date >= $3::date
+		   AND (b.created_at AT TIME ZONE 'Asia/Dhaka')::date <= $5::date
 		   AND b.status IN ('TICKETED','CONFIRMED','COMPLETED','CANCELLED','REFUNDED')
 		   AND EXISTS (SELECT 1 FROM commerce.payments p
 		                WHERE p.booking_id = b.booking_id AND p.status = 'PAID')`,
-		id, operatorID, from, int64(platformServiceFee), to, OperatorHeldCashChannels); err != nil {
+		id, operatorID, from, int64(platformServiceFee), to); err != nil {
 		return "", err
 	}
 

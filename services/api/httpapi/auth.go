@@ -56,9 +56,25 @@ func (s *Server) requirePassenger(w http.ResponseWriter, r *http.Request) *ident
 }
 
 // showOTP reveals the code in the API response. It exists so the browser test
-// and a local developer can sign in without an SMS gateway, and it is off
-// unless the environment explicitly turns it on.
-func showOTP() bool { return strings.EqualFold(os.Getenv("SHOW_OTP"), "true") }
+// and a local developer can sign in without an SMS gateway. It is off unless
+// SHOW_OTP is explicitly true AND the environment is not production — the reveal
+// must never be one env flag away in production, where it would return live OTPs
+// for any phone number over the wire and defeat the "store only the hash" design.
+func showOTP() bool { return notProduction() && strings.EqualFold(os.Getenv("SHOW_OTP"), "true") }
+
+// notProduction mirrors the boot-time secret guard's fail-closed rule: only the
+// well-known non-production names count as non-production, so an unrecognised
+// APP_ENV (prod, Production, staging, …) is treated as production and refuses to
+// reveal anything. An unset APP_ENV stays development so the stack runs locally
+// with no configuration, matching the boot default.
+func notProduction() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))) {
+	case "", "development", "dev", "test", "local", "ci":
+		return true
+	default:
+		return false
+	}
+}
 
 func (s *Server) handleOTPRequest(w http.ResponseWriter, r *http.Request) {
 	var req struct {

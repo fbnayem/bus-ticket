@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { api, ApiError, type Hold, type Passenger, type Price, type SavedPassenger, type Trip } from '@/lib/api';
 import { ErrorNotice, Fascia, Loading, Stepper } from '@/components/ui';
 import { useLang, useT } from '@/components/LangProvider';
+import { isSignedIn } from '@/lib/auth';
 
 function Checkout() {
   const params = useSearchParams();
@@ -62,7 +63,11 @@ function Checkout() {
       .catch((e: ApiError) => setError(e.message))
       .finally(() => setLoading(false));
 
-    api.savedPassengers().then((r) => setSaved(r.passengers)).catch(() => {});
+    // Saved passengers exist only for a signed-in account; a guest checkout must
+    // not fire an authenticated request that can only 401.
+    if (isSignedIn()) {
+      api.savedPassengers().then((r) => setSaved(r.passengers)).catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [holdId]);
 

@@ -333,7 +333,7 @@ function TripList({ rows, empty, cta }: { rows: AccountBooking[]; empty: string;
                 <StatusPill status={b.status} />
               </div>
               <div className="small muted" style={{ marginTop: '.15rem' }}>
-                {fmt.dateTime(b.depart_at)} · {b.brand} · {b.seat_count === 1 ? t('ac.seat1') : t('ac.seatsN', { count: b.seat_count })}
+                {fmt.dateTime(b.board_at)} · {b.brand} · {b.seat_count === 1 ? t('ac.seat1') : t('ac.seatsN', { count: b.seat_count })}
               </div>
               <div className="small muted">
                 {t('find.label')} <Ref value={b.pnr} />

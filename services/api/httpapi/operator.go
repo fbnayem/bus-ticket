@@ -16,6 +16,7 @@ import (
 
 func (s *Server) operatorRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/v1/operator/dashboard", s.guard("trip.read", s.handleOperatorDashboard))
+	m.HandleFunc("GET /api/v1/operator/insights", s.guard("trip.read", s.handleOperatorInsights))
 	m.HandleFunc("GET /api/v1/operator/trips", s.guard("trip.read", s.handleOperatorTrips))
 	m.HandleFunc("GET /api/v1/operator/trips/{tripID}/manifest", s.guard("trip.read", s.handleManifest))
 	m.HandleFunc("POST /api/v1/operator/trips/{tripID}/status", s.guard("trip.write", s.handleTripStatus))
@@ -29,6 +30,11 @@ func (s *Server) operatorRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/v1/operator/staff", s.guard("staff.read", s.handleOperatorStaff))
 	m.HandleFunc("GET /api/v1/operator/settlements", s.guard("settlement.read", s.handleOperatorSettlements))
 	m.HandleFunc("GET /api/v1/operator/reports/sales", s.guard("report.read", s.handleSalesReport))
+	s.fleetRoutes(m)
+	s.routeCrudRoutes(m)
+	s.scheduleRoutes(m)
+	s.staffCrudRoutes(m)
+	s.documentRoutes(m)
 }
 
 func (s *Server) handleOperatorDashboard(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
@@ -50,13 +56,13 @@ func (s *Server) handleOperatorDashboard(w http.ResponseWriter, r *http.Request,
 		    JOIN commerce.bookings b ON b.booking_id=bs.booking_id
 		   WHERE ($1='' OR b.operator_id=$1::uuid)
 		     AND b.status IN ('TICKETED','CONFIRMED','COMPLETED')
-		     AND b.created_at::date = catalog.bd_today()),
+		     AND (b.created_at AT TIME ZONE 'Asia/Dhaka')::date = catalog.bd_today()),
 		 (SELECT count(*) FROM catalog.buses WHERE ($1='' OR operator_id=$1::uuid)),
 		 (SELECT count(*) FROM counter.counters WHERE ($1='' OR operator_id=$1::uuid)),
 		 (SELECT COALESCE(sum(total_poisha),0) FROM commerce.bookings
 		   WHERE ($1='' OR operator_id=$1::uuid)
 		     AND status IN ('TICKETED','CONFIRMED','COMPLETED')
-		     AND created_at::date = catalog.bd_today()),
+		     AND (created_at AT TIME ZONE 'Asia/Dhaka')::date = catalog.bd_today()),
 		 (SELECT COALESCE(sum(total_poisha),0) FROM commerce.bookings
 		   WHERE ($1='' OR operator_id=$1::uuid)
 		     AND status IN ('TICKETED','CONFIRMED','COMPLETED')
@@ -179,15 +185,24 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request, id *staf
 
 	trip := map[string]any{"trip_id": tripID}
 	var depart time.Time
-	var route, brand, reg, status string
+	var route, brand, reg, status, tripOp string
 	if err := s.pool.QueryRow(ctx, `
-		SELECT t.depart_at, r.name, o.brand, b.registration, t.status
+		SELECT t.depart_at, r.name, o.brand, b.registration, t.status, t.operator_id::text
 		  FROM catalog.trips t
 		  JOIN catalog.routes r ON r.route_id=t.route_id
 		  JOIN catalog.operators o ON o.operator_id=t.operator_id
 		  JOIN catalog.buses b ON b.bus_id=t.bus_id
-		 WHERE t.trip_id=$1::uuid`, tripID).Scan(&depart, &route, &brand, &reg, &status); err != nil {
+		 WHERE t.trip_id=$1::uuid`, tripID).Scan(&depart, &route, &brand, &reg, &status, &tripOp); err != nil {
 		fail(w, 404, "trip_not_found", "That trip does not exist.")
+		return
+	}
+	// Tenancy: the manifest carries passenger names, phone numbers and QR boarding
+	// tokens. An operator may read only their OWN trip's manifest; platform staff
+	// (no operator scope) may read any. The write sibling handleTripStatus already
+	// enforces this — the read must too, or a trip id (which public search hands
+	// out for every operator) becomes a key to a competitor's passenger list.
+	if id.OperatorID != "" && id.OperatorID != tripOp {
+		fail(w, 403, "forbidden", "That trip belongs to another operator.")
 		return
 	}
 	trip["depart_at"], trip["route"], trip["operator"] = depart, route, brand
@@ -255,6 +270,7 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request, id *staf
 
 type tripStatusRequest struct {
 	Status string `json:"status"`
+	Reason string `json:"reason"`
 }
 
 // legalTransitions is the trip lifecycle. An illegal jump is rejected here
@@ -296,6 +312,25 @@ func (s *Server) handleTripStatus(w http.ResponseWriter, r *http.Request, id *st
 		fail(w, 409, "illegal_transition", "A trip cannot go from "+current+" to "+req.Status+".")
 		return
 	}
+	// Cancelling a trip is never a bare status flip: every passenger on it is
+	// holding a ticket for a bus that will not run. CancelTrip refunds each of
+	// them in full, frees their seats, and fans the cancellation out to their
+	// phones, the search index and the control room — all before the trip is
+	// marked CANCELLED. A plain UPDATE here would strand them.
+	if req.Status == "CANCELLED" {
+		res, err := s.com.CancelTrip(r.Context(), tripID, req.Reason)
+		if err != nil {
+			fail(w, 500, "cancel_failed", "The trip could not be cancelled.")
+			return
+		}
+		s.stf.Audit(r.Context(), id, "trip.cancel", "trip:"+tripID, req.Reason)
+		writeJSON(w, 200, map[string]any{
+			"trip_id": tripID, "from": current, "status": "CANCELLED",
+			"bookings_cancelled": res.BookingsCancelled, "refund_poisha": res.RefundPoisha,
+		})
+		return
+	}
+
 	if _, err := s.pool.Exec(r.Context(),
 		`UPDATE catalog.trips SET status=$2 WHERE trip_id=$1::uuid`, tripID, req.Status); err != nil {
 		fail(w, 500, "update_failed", "The trip status could not be changed.")
@@ -508,8 +543,12 @@ func (s *Server) handleOperatorSchedules(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, 200, map[string]any{"schedules": out})
 }
 
+// daysFromMask expands the schedule's day bitmask. Bit 0 is Monday — the same
+// convention catalog.schedules documents and tripgen generates against
+// (weekdayBit = (weekday+6)%7). This once read bit 0 as Sunday, so the operator
+// saw a schedule's running days shifted by a day from the days it actually ran.
 func daysFromMask(mask int) []string {
-	names := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+	names := []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
 	out := []string{}
 	for i, n := range names {
 		if mask&(1<<uint(i)) != 0 {
@@ -566,7 +605,8 @@ func (s *Server) handleOperatorCounters(w http.ResponseWriter, r *http.Request, 
 		       (SELECT count(*) FROM counter.shifts sh
 		         WHERE sh.counter_id=c.counter_id AND sh.status='OPEN'),
 		       (SELECT COALESCE(sum(b.total_poisha),0) FROM commerce.bookings b
-		         WHERE b.counter_id=c.counter_id AND b.created_at::date = catalog.bd_today()
+		         WHERE b.counter_id=c.counter_id
+		           AND (b.created_at AT TIME ZONE 'Asia/Dhaka')::date = catalog.bd_today()
 		           AND b.status IN ('TICKETED','CONFIRMED','COMPLETED'))
 		  FROM counter.counters c
 		  LEFT JOIN catalog.locations l ON l.location_id=c.location_id
@@ -642,7 +682,7 @@ func (s *Server) handleSalesReport(w http.ResponseWriter, r *http.Request, id *s
 		       COALESCE(sum(b.total_poisha) FILTER (WHERE b.channel='AGENT'),0)
 		  FROM generate_series($2::date, $3::date, interval '1 day') d
 		  LEFT JOIN commerce.bookings b
-		         ON b.created_at::date = d::date
+		         ON (b.created_at AT TIME ZONE 'Asia/Dhaka')::date = d::date
 		        AND ($1='' OR b.operator_id=$1::uuid)
 		        AND b.status IN ('TICKETED','CONFIRMED','COMPLETED')
 		 GROUP BY d ORDER BY d`, op, from, to)
@@ -673,7 +713,7 @@ func (s *Server) handleSalesReport(w http.ResponseWriter, r *http.Request, id *s
 		  JOIN catalog.routes r ON r.route_id=t.route_id
 		 WHERE ($1='' OR b.operator_id=$1::uuid)
 		   AND b.status IN ('TICKETED','CONFIRMED','COMPLETED')
-		   AND b.created_at::date BETWEEN $2::date AND $3::date
+		   AND (b.created_at AT TIME ZONE 'Asia/Dhaka')::date BETWEEN $2::date AND $3::date
 		 GROUP BY r.name ORDER BY 3 DESC LIMIT 10`, op, from, to)
 	routes := []map[string]any{}
 	if rrows != nil {
