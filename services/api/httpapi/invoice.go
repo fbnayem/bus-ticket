@@ -89,14 +89,18 @@ func (s *Server) handleBookingInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Buyer: first passenger's name, and the booking contact.
-	var buyerName, phone, email string
+	// Buyer: first passenger's name, and the booking contact phone. This endpoint
+	// is reachable with the PNR alone (the PNR is the bearer capability, as with
+	// /tracking and /cancellation-quote), so it discloses only what those already
+	// do — name and phone. Email is deliberately NOT returned here: it added a
+	// contactable identifier that a bare, guessed or observed PNR should not yield.
+	var buyerName, phone string
 	_ = s.pool.QueryRow(ctx,
 		`SELECT COALESCE(full_name,'') FROM commerce.booking_passengers
 		  WHERE booking_id=$1::uuid ORDER BY seat_no LIMIT 1`, bookingID).Scan(&buyerName)
 	_ = s.pool.QueryRow(ctx,
-		`SELECT COALESCE(phone,''), COALESCE(email,'') FROM commerce.booking_contacts
-		  WHERE booking_id=$1::uuid LIMIT 1`, bookingID).Scan(&phone, &email)
+		`SELECT COALESCE(phone,'') FROM commerce.booking_contacts
+		  WHERE booking_id=$1::uuid LIMIT 1`, bookingID).Scan(&phone)
 
 	// The transport fare the operator received = everything the passenger paid
 	// except the platform's service fee. It is already net of any discount, and
@@ -120,7 +124,7 @@ func (s *Server) handleBookingInvoice(w http.ResponseWriter, r *http.Request) {
 		"depart_at":    departAt,
 		"seller":       invoiceParty{Name: legal, BIN: *vatBIN},
 		"seller_brand": brand,
-		"buyer":        invoiceParty{Name: buyerName, Phone: phone, Email: email},
+		"buyer":        invoiceParty{Name: buyerName, Phone: phone},
 		"origin":       origin,
 		"destination":  dest,
 		"is_ac":        isAC,

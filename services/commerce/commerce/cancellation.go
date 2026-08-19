@@ -147,12 +147,6 @@ func (s *Service) loadBookingRef(ctx context.Context, pnr string) (bookingRef, e
 // to drive the search index and the control-room alert, and finds no passengers
 // of its own to re-notify because these bookings are already cancelled by then.
 func (s *Service) applyCancellation(ctx context.Context, b bookingRef, refundPct int, refundPoisha int64, hoursBefore float64, reason string, emitBookingEvent bool) error {
-	// Seats first: the passenger's fate is decided, so the seat should become
-	// available to someone else immediately rather than at departure.
-	if err := s.inv.ReleaseConfirmed(ctx, b.holdID, "CANCELLED"); err != nil {
-		return fmt.Errorf("release seats: %w", err)
-	}
-
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -283,7 +277,19 @@ func (s *Service) applyCancellation(ctx context.Context, b bookingRef, refundPct
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// Release the seats only after the cancellation is durably committed. Doing it
+	// before the transaction — as this once did — meant a transaction that rolled
+	// back (a balance-assert failure, a transient fault) left the seats freed for
+	// resale while the booking was still live: a double-sell window. Releasing
+	// after commit inverts the failure into the safe direction — at worst a
+	// cancelled booking's seats linger held until reconciliation, never a live
+	// booking's seats sold twice.
+	_ = s.inv.ReleaseConfirmed(ctx, b.holdID, "CANCELLED")
+	return nil
 }
 
 // TripCancellation summarises what cancelling a whole trip did: how many live

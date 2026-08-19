@@ -163,7 +163,20 @@ func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "bad_request", "We could not read that request.")
 		return
 	}
-	tokens, err := s.ident.LoginPassword(r.Context(), req.Login, req.Password, req.Device, clientAddr(r))
+	// Password login is the one credential path the OTP flow's throttling did not
+	// cover, so an attacker could grind guesses against a known number at
+	// endpoint speed. Put it behind the same risk engine, keyed on the IP and the
+	// normalised login, exactly as the OTP request is.
+	ip := clientAddr(r)
+	if s.risk != nil {
+		subj := risk.Subject{IP: ip, Phone: identity.NormalisePhone(req.Login)}
+		if d := s.risk.Evaluate(r.Context(), "login", subj, 0); !d.Allowed() {
+			fail(w, 429, "rate_limited", "Too many sign-in attempts. Please wait a few minutes and try again.")
+			return
+		}
+		s.risk.Observe(r.Context(), "login", subj)
+	}
+	tokens, err := s.ident.LoginPassword(r.Context(), req.Login, req.Password, req.Device, ip)
 	if err != nil {
 		// One message for both "no such account" and "wrong password", so the
 		// response cannot be used to find out which numbers have accounts.

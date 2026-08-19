@@ -99,7 +99,8 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request, _ *staff
 	pnr := r.PathValue("pnr")
 	ctx := r.Context()
 
-	var bookingID, status, channel, brand, holdID string
+	var bookingID, status, channel, brand string
+	var holdID *string // hold_id can be NULL; scanning NULL into a string would 404 a real booking
 	var total int64
 	var created, depart time.Time
 	var phone, email *string
@@ -121,10 +122,11 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request, _ *staff
 		events = append(events, timelineEvent{At: at, Kind: kind, Title: title, Detail: detail, Source: source})
 	}
 
-	// Seat holds and releases, from the append-only inventory event log.
+	// Seat holds and releases, from the append-only inventory event log. Skipped
+	// when the booking never had a hold id (a NULL that would match nothing).
 	if irows, err := s.pool.Query(ctx, `
 		SELECT event_type, seat_no, occurred_at FROM inventory.inventory_events
-		 WHERE hold_id = $1::uuid ORDER BY occurred_at`, holdID); err == nil {
+		 WHERE $1::text IS NOT NULL AND hold_id = $1::uuid ORDER BY occurred_at`, holdID); err == nil {
 		seatsBy := map[string][]string{}
 		firstAt := map[string]time.Time{}
 		for irows.Next() {

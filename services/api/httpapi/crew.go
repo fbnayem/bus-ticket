@@ -381,6 +381,10 @@ func (s *Server) handleCrewSale(w http.ResponseWriter, r *http.Request, id *staf
 		fail(w, 400, "no_seats", "Choose at least one seat.")
 		return
 	}
+	if len(req.Seats) > 6 {
+		fail(w, 400, "too_many_seats", "Up to 6 seats can be sold in one booking.")
+		return
+	}
 	if req.Phone == "" {
 		fail(w, 400, "phone_required", "Take a mobile number so the passenger gets their ticket.")
 		return

@@ -217,6 +217,23 @@ func (s *Server) handleReschedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A reschedule moves the SAME journey to a different departure, so it must keep
+	// the same number of seats. Without this a one-seat booking could be rescheduled
+	// into four — the extra seats bypass purchase validation and get no passenger
+	// record — or into fewer to manufacture a negative-difference refund.
+	var oldSeatCount int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM commerce.booking_seats WHERE booking_id=$1::uuid`, oldBookingID).
+		Scan(&oldSeatCount); err != nil {
+		fail(w, 500, "query_failed", "Could not load that booking.")
+		return
+	}
+	if len(req.Seats) == 0 || len(req.Seats) != oldSeatCount {
+		fail(w, 400, "seat_count_mismatch",
+			"A reschedule must keep the same number of seats as the original booking.")
+		return
+	}
+
 	// 1. hold the new seats first — never give up the old ones speculatively
 	newHold, err := s.inv.AcquireHold(ctx, inventory.HoldRequest{
 		TripID: req.TripID, Seats: req.Seats,

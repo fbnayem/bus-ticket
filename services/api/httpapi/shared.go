@@ -17,6 +17,21 @@ func deref(p *string) string {
 	return *p
 }
 
+// dhaka is Asia/Dhaka as a fixed +6 zone (Bangladesh keeps no daylight saving),
+// matching tripgen. Every "today" the platform defaults to is a Dhaka calendar
+// day: the service runs in Bangladesh, so a naive time.Now() in a UTC production
+// box rolls the date over six hours early and a passenger searching at 2am Dhaka
+// would be shown yesterday's — mostly departed — trips.
+var dhaka = time.FixedZone("Asia/Dhaka", 6*3600)
+
+// dhakaToday is today's date in Dhaka as YYYY-MM-DD.
+func dhakaToday() string { return time.Now().In(dhaka).Format("2006-01-02") }
+
+// dhakaDaysAgo is the Dhaka date n days before today, as YYYY-MM-DD.
+func dhakaDaysAgo(n int) string {
+	return time.Now().In(dhaka).AddDate(0, 0, -n).Format("2006-01-02")
+}
+
 // attributeSale records which channel actually made the sale. Settlement
 // cannot split operator revenue from agent commission without it, and support
 // cannot answer "who sold this ticket?".
@@ -85,13 +100,13 @@ func (s *Server) ticketsFor(ctx context.Context, bookingID string) []ticketOut {
 	return out
 }
 
-// dateRange reads from/to query parameters, defaulting to the last 7 days.
+// dateRange reads from/to query parameters, defaulting to the last 7 Dhaka days.
 func dateRange(from, to string) (string, string) {
 	if to == "" {
-		to = time.Now().Format("2006-01-02")
+		to = dhakaToday()
 	}
 	if from == "" {
-		from = time.Now().AddDate(0, 0, -7).Format("2006-01-02")
+		from = dhakaDaysAgo(7)
 	}
 	return from, to
 }

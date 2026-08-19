@@ -15,6 +15,10 @@ import (
 	"github.com/busticket/platform/services/staff/staff"
 )
 
+// errOfflineAmount rejects an offline sale whose quoted total does not match the
+// published fare within the operator's absorbable discount range.
+var errOfflineAmount = errors.New("the sale total does not match the published fare")
+
 // The counter POS API.
 //
 // Note what is absent: there is no counter seat map, no counter availability
@@ -272,6 +276,10 @@ func (s *Server) handleCounterSale(w http.ResponseWriter, r *http.Request, id *s
 		fail(w, 400, "no_seats", "Choose at least one seat.")
 		return
 	}
+	if len(req.Seats) > 6 {
+		fail(w, 400, "too_many_seats", "Up to 6 seats can be sold in one booking.")
+		return
+	}
 	if req.Phone == "" {
 		fail(w, 400, "phone_required", "Take a mobile number so the passenger gets their ticket.")
 		return
@@ -334,6 +342,20 @@ func (s *Server) handleCounterSale(w http.ResponseWriter, r *http.Request, id *s
 	discount := concessionDiscount(fare, req.Concessions, s.concessionRates(ctx, operatorID))
 	total := full - discount
 
+	// A concession is absorbed by the operator, so it cannot exceed the operator's
+	// own margin — beyond that the Operator Payable leg goes negative and the
+	// ledger's positive-amount CHECK rejects the whole journal AFTER payment is
+	// taken and the seats confirmed, stranding a paid, seat-held, un-ticketed
+	// booking. Refuse it cleanly here, before any money moves, as the crew path
+	// does with its discount cap. base is the fare net of the service fee; the
+	// operator keeps base minus the platform's tenth of it.
+	base := full - serviceFeePoisha
+	if discount > base-base/10 {
+		_ = s.inv.ReleaseHold(ctx, hold.HoldID, "DISCOUNT_TOO_LARGE")
+		fail(w, 400, "discount_too_large", "That concession is larger than the fare can bear.")
+		return
+	}
+
 	bookingID, pnr, err := s.com.CreateBooking(ctx, commerce.BookingRequest{
 		HoldID: hold.HoldID, TripID: req.TripID, OperatorID: operatorID,
 		Seats: hold.Seats, BoardSeq: req.BoardSeq, DropSeq: req.DropSeq,
@@ -360,8 +382,13 @@ func (s *Server) handleCounterSale(w http.ResponseWriter, r *http.Request, id *s
 	}
 
 	if err := s.com.SettleCounterSale(ctx, bookingID, req.ShiftID, req.Method); err != nil {
-		s.log.Error("counter settle", "err", err)
-		fail(w, 500, "payment_failed", "Payment could not be recorded. Nothing has been charged.")
+		// The seats are already confirmed and the booking exists at this point, so
+		// "nothing has been charged" would be a lie that invites the clerk to
+		// re-sell and double-book. Surface the PNR and send them to reconciliation,
+		// exactly as the crew sale path does.
+		s.log.Error("counter settle", "err", err, "pnr", pnr)
+		fail(w, 500, "settle_failed",
+			"The seats are held under "+pnr+" but payment could not be recorded. Do not re-sell — settle it from the office.")
 		return
 	}
 	s.stf.Audit(ctx, id, "counter.sale", "booking:"+pnr, nil)
@@ -568,6 +595,18 @@ func (s *Server) handleReplayOffline(w http.ResponseWriter, r *http.Request, id 
 			_ = s.pool.QueryRow(ctx, `
 				SELECT pnr, status, COALESCE(reject_reason,'') FROM counter.offline_sales
 				 WHERE client_ref = $1`, sale.ClientRef).Scan(&pnr, &status, &reason)
+			// A claim with no PNR and no rejection is a half-finished attempt — the
+			// claim committed but a crash or fault stopped the booking before it was
+			// recorded. Reporting it as "already_replayed" with an empty PNR would
+			// silently drop a cash sale; surface it so the terminal and the office
+			// know it still needs reconciliation rather than assuming it is done.
+			if deref(pnr) == "" && status != "REJECTED" {
+				res["outcome"] = "pending_reconciliation"
+				res["status"] = status
+				res["reason"] = "the sale was claimed but never completed — reconcile it in the office"
+				results = append(results, res)
+				continue
+			}
 			res["outcome"] = "already_replayed"
 			res["pnr"] = deref(pnr)
 			res["status"] = status
@@ -608,6 +647,29 @@ func (s *Server) handleReplayOffline(w http.ResponseWriter, r *http.Request, id 
 }
 
 func (s *Server) replayOne(ctx context.Context, counterID, staffID string, sale offlineSale) (string, error) {
+	// The offline terminal quotes its own total, so the server must bound it
+	// rather than book whatever figure the queue carries: otherwise a tampered or
+	// misbehaving terminal could record a real seat for an arbitrary price and the
+	// ledger, settlement and commission would all reconcile to the fabricated
+	// number. Recompute the published fare and require the total to sit between
+	// the operator's floor (full fare minus the most a concession could absorb)
+	// and the full fare. It cannot exceed the published price, and it cannot dip
+	// below what the operator could legitimately discount to.
+	var fare int64
+	if err := s.pool.QueryRow(ctx, `
+		SELECT f.amount_poisha FROM catalog.trips t
+		  JOIN catalog.route_fares f ON f.route_id = t.route_id
+		 WHERE t.trip_id = $1::uuid AND f.from_stop_seq = $2 AND f.to_stop_seq = $3
+		 LIMIT 1`, sale.TripID, sale.BoardSeq, sale.DropSeq).Scan(&fare); err != nil {
+		return "", fmt.Errorf("no published fare for that journey: %w", err)
+	}
+	full := fare*int64(len(sale.Seats)) + serviceFeePoisha
+	base := full - serviceFeePoisha
+	floor := full - (base - base/10) // full minus the operator's absorbable margin
+	if sale.TotalPoisha > full || sale.TotalPoisha < floor {
+		return "", errOfflineAmount
+	}
+
 	// SellQuota is where the rule is enforced: bits move blocked -> sold only
 	// if this counter genuinely owned them. A seat outside the quota fails
 	// here, in inventory-service, not in the POS.

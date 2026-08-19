@@ -318,6 +318,14 @@ func (s *Service) finalise(ctx context.Context, w Webhook, paymentID, operatorID
 		return s.Finalise(ctx, w.BookingID, "reschedule difference paid",
 			ReschedulePostings(oldTotal, newTotal, operatorID, pnr))
 	}
+	// Only "this booking is not a reschedule" (no matching original) may fall
+	// through to the ordinary gateway posting. A real query error must not, or a
+	// genuine reschedule whose lookup transiently failed would be posted from
+	// w.AmountPoisha — the fare DIFFERENCE, not the full fare — writing a wrong
+	// journal for the whole booking.
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
 	return s.Finalise(ctx, w.BookingID, "payment verified via webhook",
 		GatewayPostings(w.AmountPoisha, w.Provider, operatorID))
 }

@@ -76,7 +76,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	dateStr := q.Get("date")
 	if dateStr == "" {
-		dateStr = time.Now().Format("2006-01-02")
+		dateStr = dhakaToday()
 	}
 	if _, err := time.Parse("2006-01-02", dateStr); err != nil {
 		fail(w, 400, "bad_date", "Travel date must look like 2026-08-20.")
@@ -200,7 +200,8 @@ func (s *Server) handleTrip(w http.ResponseWriter, r *http.Request) {
 
 	_ = s.pool.QueryRow(r.Context(), `
 		SELECT COALESCE(amount_poisha,0) FROM catalog.route_fares
-		 WHERE route_id=$1::uuid AND from_stop_seq=$2 AND to_stop_seq=$3 LIMIT 1`,
+		 WHERE route_id=$1::uuid AND from_stop_seq=$2 AND to_stop_seq=$3
+		 ORDER BY version DESC LIMIT 1`,
 		routeID, board, drop).Scan(&out.FarePoisha)
 	_ = s.pool.QueryRow(r.Context(), `
 		SELECT COALESCE(sum(minutes),0) FROM catalog.route_segment_minutes

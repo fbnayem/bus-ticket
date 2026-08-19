@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/busticket/platform/services/staff/staff"
 )
@@ -30,10 +29,10 @@ func (s *Server) handleOperatorInsights(w http.ResponseWriter, r *http.Request, 
 	to := r.URL.Query().Get("to")
 	from := r.URL.Query().Get("from")
 	if to == "" {
-		to = time.Now().Format("2006-01-02")
+		to = dhakaToday()
 	}
 	if from == "" {
-		from = time.Now().AddDate(0, 0, -29).Format("2006-01-02")
+		from = dhakaDaysAgo(29)
 	}
 
 	const live = `('TICKETED','CONFIRMED','COMPLETED')`

@@ -79,9 +79,17 @@ export default function TimelinePage({ params }: { params: Promise<{ pnr: string
 
   const refund = async () => {
     if (!refundReason.trim()) { setError('Give a reason for the refund.'); return; }
+    // A non-numeric override used to become NaN, serialise to null, and be read
+    // by the server as 0 — a full-policy refund the agent never intended. Reject
+    // it here instead of silently changing the amount.
+    let override_poisha = 0;
+    if (overrideTk.trim()) {
+      const n = Number(overrideTk);
+      if (!Number.isFinite(n) || n < 0) { setError('Enter a valid refund amount in taka, or leave it blank.'); return; }
+      override_poisha = Math.round(n * 100);
+    }
     setActing(true); setError('');
     try {
-      const override_poisha = overrideTk.trim() ? Math.round(Number(overrideTk) * 100) : 0;
       const r = await spost<{ refund_poisha: number }>(`/helpdesk/bookings/${pnr}/refund`, {
         reason: refundReason, override_poisha,
       });

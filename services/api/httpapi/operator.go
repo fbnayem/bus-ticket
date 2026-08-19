@@ -1,8 +1,11 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/busticket/platform/services/staff/staff"
 )
@@ -135,7 +138,7 @@ func (s *Server) handleOperatorTrips(w http.ResponseWriter, r *http.Request, id 
 	op := scopeOperator(id, r.URL.Query().Get("operator_id"))
 	date := r.URL.Query().Get("date")
 	if date == "" {
-		date = time.Now().Format("2006-01-02")
+		date = dhakaToday()
 	}
 	rows, err := s.pool.Query(r.Context(), `
 		SELECT t.trip_id::text, t.depart_at, t.status, r.name, b.registration, bt.name,
@@ -478,33 +481,61 @@ func (s *Server) handleSetFare(w http.ResponseWriter, r *http.Request, id *staff
 		return
 	}
 
+	// Read the current version, insert the next, and retire the old one in a
+	// single transaction. Two publishes racing on the same journey both read the
+	// same max version; without this the two inserts and deletes interleave and
+	// each removes the other's fresh row, leaving no published fare at all. The
+	// unique index on (route, stops, class, version) makes the loser's insert fail
+	// here, its transaction rolls back, and the existing fare is left untouched.
+	ctx := r.Context()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		fail(w, 500, "fare_failed", "The fare could not be published.")
+		return
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
 	var version int
-	_ = s.pool.QueryRow(r.Context(), `
+	if err := tx.QueryRow(ctx, `
 		SELECT COALESCE(max(version),0)+1 FROM catalog.route_fares
 		 WHERE route_id=$1::uuid AND from_stop_seq=$2 AND to_stop_seq=$3 AND fare_class=$4`,
-		req.RouteID, req.FromStopSeq, req.ToStopSeq, req.FareClass).Scan(&version)
+		req.RouteID, req.FromStopSeq, req.ToStopSeq, req.FareClass).Scan(&version); err != nil {
+		fail(w, 500, "fare_failed", "The fare could not be published.")
+		return
+	}
 
-	// Supersede by deleting only the previous *current* row after inserting the
-	// new one, so no window exists where the journey has no published fare.
 	var fareID string
-	if err := s.pool.QueryRow(r.Context(), `
+	if err := tx.QueryRow(ctx, `
 		INSERT INTO catalog.route_fares
 			(route_id, from_stop_seq, to_stop_seq, fare_class, amount_poisha, version)
 		VALUES ($1::uuid,$2,$3,$4,$5,$6) RETURNING fare_id::text`,
 		req.RouteID, req.FromStopSeq, req.ToStopSeq, req.FareClass,
 		req.AmountPoisha, version).Scan(&fareID); err != nil {
+		// A unique violation is a concurrent publish that already claimed this
+		// version — the existing fare stands; ask the caller to retry.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			fail(w, 409, "fare_conflict", "That fare was just updated on another device. Try again.")
+			return
+		}
 		s.log.Error("set fare", "err", err)
 		fail(w, 500, "fare_failed", "The fare could not be published.")
 		return
 	}
-	if _, err := s.pool.Exec(r.Context(), `
+	if _, err := tx.Exec(ctx, `
 		DELETE FROM catalog.route_fares
 		 WHERE route_id=$1::uuid AND from_stop_seq=$2 AND to_stop_seq=$3
 		   AND fare_class=$4 AND fare_id <> $5::uuid`,
 		req.RouteID, req.FromStopSeq, req.ToStopSeq, req.FareClass, fareID); err != nil {
 		s.log.Error("supersede fare", "err", err)
+		fail(w, 500, "fare_failed", "The fare could not be published.")
+		return
 	}
-	s.stf.Audit(r.Context(), id, "fare.publish", "route:"+req.RouteID, "")
+	if err := tx.Commit(ctx); err != nil {
+		fail(w, 500, "fare_failed", "The fare could not be published.")
+		return
+	}
+	s.stf.Audit(ctx, id, "fare.publish", "route:"+req.RouteID, "")
 	writeJSON(w, 201, map[string]any{
 		"fare_id": fareID, "version": version, "amount_poisha": req.AmountPoisha,
 	})

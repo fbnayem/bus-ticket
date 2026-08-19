@@ -101,7 +101,11 @@ export default function OperatorTripsPage() {
   };
 
   const openManifest = async (t: Trip) => {
-    setManifest(await sget<Manifest>(`/operator/trips/${t.trip_id}/manifest`));
+    try {
+      setManifest(await sget<Manifest>(`/operator/trips/${t.trip_id}/manifest`));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'The manifest could not be loaded.');
+    }
   };
 
   const mayWrite = can(session?.identity ?? null, 'trip.write');

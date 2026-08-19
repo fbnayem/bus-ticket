@@ -10,7 +10,7 @@
 
 CREATE SCHEMA IF NOT EXISTS compliance;
 
-CREATE TABLE compliance.documents (
+CREATE TABLE IF NOT EXISTS compliance.documents (
     document_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     operator_id uuid NOT NULL REFERENCES catalog.operators(operator_id),
     -- Exactly one subject: a document belongs to a vehicle or to a person,
@@ -32,9 +32,9 @@ CREATE TABLE compliance.documents (
     CHECK ((bus_id IS NOT NULL) <> (staff_id IS NOT NULL))
 );
 
-CREATE INDEX ON compliance.documents (operator_id, expires_on);
-CREATE INDEX ON compliance.documents (bus_id);
-CREATE INDEX ON compliance.documents (staff_id);
+CREATE INDEX IF NOT EXISTS documents_operator_expiry ON compliance.documents (operator_id, expires_on);
+CREATE INDEX IF NOT EXISTS documents_bus ON compliance.documents (bus_id);
+CREATE INDEX IF NOT EXISTS documents_staff ON compliance.documents (staff_id);
 
 -- ============================================================= permissions ==
 -- compliance.read  — see the documents and the expiry alerts.

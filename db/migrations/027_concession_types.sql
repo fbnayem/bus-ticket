@@ -9,7 +9,7 @@
 --
 -- The discount is basis points, never a float: 50% is 5000, 25% is 2500.
 
-CREATE TABLE catalog.concession_types (
+CREATE TABLE IF NOT EXISTS catalog.concession_types (
     concession_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     -- NULL operator_id is the platform default; an operator row overrides it for
     -- that operator only, so a company can be more generous than the baseline
@@ -23,8 +23,8 @@ CREATE TABLE catalog.concession_types (
 );
 
 -- One platform default per code, and one override per operator per code.
-CREATE UNIQUE INDEX concession_platform_default ON catalog.concession_types (code) WHERE operator_id IS NULL;
-CREATE UNIQUE INDEX concession_operator_override ON catalog.concession_types (operator_id, code) WHERE operator_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS concession_platform_default ON catalog.concession_types (code) WHERE operator_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS concession_operator_override ON catalog.concession_types (operator_id, code) WHERE operator_id IS NOT NULL;
 
 -- Platform defaults, in both languages the frontline reads.
 INSERT INTO catalog.concession_types (operator_id, code, label, label_bn, discount_bp) VALUES

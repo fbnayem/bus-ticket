@@ -34,8 +34,12 @@ export default function CrewRoster({ tripID, label, onClose, onChanged }: Props)
     ])
       .then(([c, s]) => {
         setCrew(c.crew);
-        setStaff(s.staff.filter((x) => x.status === 'ACTIVE'));
-        setPick((p) => p || s.staff[0]?.staff_id || '');
+        // Default the picker from the SAME active list the dropdown shows, not the
+        // raw staff list — otherwise the default can be a suspended person the
+        // dropdown never offers, and adding them is refused.
+        const active = s.staff.filter((x) => x.status === 'ACTIVE');
+        setStaff(active);
+        setPick((p) => p || active[0]?.staff_id || '');
       })
       .catch((e: ApiError) => setError(e.message));
   }, [tripID]);

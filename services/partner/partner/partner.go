@@ -26,6 +26,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -401,8 +402,14 @@ func (s *Service) Dispatch(ctx context.Context, batch int) (delivered, failed, d
 	return delivered, failed, dead, nil
 }
 
-func (s *Service) post(ctx context.Context, url, ts, sig, eventType, eventID string, body []byte) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+func (s *Service) post(ctx context.Context, target, ts, sig, eventType, eventID string, body []byte) (int, error) {
+	// A partner-registered URL must never become a request against the platform's
+	// own network. Refuse anything that is not http(s) or that resolves to a
+	// private, loopback, link-local or cloud-metadata address before dispatching.
+	if err := safeOutboundURL(ctx, target); err != nil {
+		return 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return 0, err
 	}
@@ -417,6 +424,40 @@ func (s *Service) post(ctx context.Context, url, ts, sig, eventType, eventID str
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode, nil
+}
+
+// safeOutboundURL refuses a webhook target that is not http(s) or that resolves
+// to a non-public address (private, loopback, link-local, unspecified, multicast,
+// or the 169.254.169.254 cloud-metadata endpoint). This blocks SSRF via a
+// partner-registered URL. A residual DNS-rebinding window remains between this
+// resolve and the client's own dial; tightening that further would need a
+// dial-time IP check on the shared transport.
+func safeOutboundURL(ctx context.Context, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("partner: bad webhook url: %w", err)
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return fmt.Errorf("partner: webhook url must be http(s), got %q", u.Scheme)
+	}
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", u.Hostname())
+	if err != nil {
+		return fmt.Errorf("partner: cannot resolve webhook host: %w", err)
+	}
+	for _, ip := range ips {
+		if !publicIP(ip) {
+			return errors.New("partner: webhook host resolves to a non-public address")
+		}
+	}
+	return nil
+}
+
+func publicIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		return false
+	}
+	return !ip.Equal(net.IPv4(169, 254, 169, 254))
 }
 
 // Replay re-arms a dead delivery. It is the repair tool a partner asks for

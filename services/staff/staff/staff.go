@@ -36,10 +36,11 @@ var (
 )
 
 const (
-	sessionTTL   = 12 * time.Hour // one working day, then log in again
-	hashIter     = 210000
-	hashKeyLen   = 32
-	lockoutAfter = 8
+	sessionTTL      = 12 * time.Hour // one working day, then log in again
+	hashIter        = 210000
+	hashKeyLen      = 32
+	lockoutAfter    = 8
+	lockoutCooldown = 15 * time.Minute // a lock lifts itself after this quiet window
 )
 
 // Identity is who the caller is and what they may do. It is assembled once per
@@ -95,10 +96,11 @@ func (s *Service) LoginWithCode(ctx context.Context, email, password, totp, ip, 
 
 	var staffID, storedHash, salt, status string
 	var iter, failed int
+	var lockedAt *time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT staff_id::text, password_hash, password_salt, password_iter, status, failed_logins
+		SELECT staff_id::text, password_hash, password_salt, password_iter, status, failed_logins, locked_at
 		  FROM staff.staff_users WHERE lower(email) = $1`, email).
-		Scan(&staffID, &storedHash, &salt, &iter, &status, &failed)
+		Scan(&staffID, &storedHash, &salt, &iter, &status, &failed, &lockedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Spend the same work an existing account would, then fail identically.
 		_, _ = derive(password, "00000000000000000000000000000000", hashIter)
@@ -106,6 +108,19 @@ func (s *Service) LoginWithCode(ctx context.Context, email, password, totp, ip, 
 	}
 	if err != nil {
 		return "", nil, err
+	}
+
+	// Lift a lock that has served its cooldown, so a locked-out clerk recovers on
+	// their own after the quiet window instead of waiting for an administrator —
+	// the guess limit still bites within the window, but it is no longer a
+	// standing denial of service against anyone whose email is known.
+	if status == "LOCKED" && lockedAt != nil && time.Since(*lockedAt) >= lockoutCooldown {
+		if _, err := s.pool.Exec(ctx, `
+			UPDATE staff.staff_users SET status='ACTIVE', failed_logins=0, locked_at=NULL
+			 WHERE staff_id=$1::uuid AND status='LOCKED'`, staffID); err != nil {
+			return "", nil, err
+		}
+		status, failed = "ACTIVE", 0
 	}
 
 	got, err := derive(password, salt, iter)
@@ -117,7 +132,9 @@ func (s *Service) LoginWithCode(ctx context.Context, email, password, totp, ip, 
 			UPDATE staff.staff_users
 			   SET failed_logins = failed_logins + 1,
 			       status = CASE WHEN failed_logins + 1 >= $2 AND status = 'ACTIVE'
-			                     THEN 'LOCKED' ELSE status END
+			                     THEN 'LOCKED' ELSE status END,
+			       locked_at = CASE WHEN failed_logins + 1 >= $2 AND status = 'ACTIVE'
+			                        THEN now() ELSE locked_at END
 			 WHERE staff_id = $1::uuid`, staffID, lockoutAfter)
 		return "", nil, ErrBadCredentials
 	}

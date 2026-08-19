@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/busticket/platform/services/staff/staff"
 )
@@ -38,7 +41,7 @@ func window(r *http.Request) (from, to string) {
 	to = r.URL.Query().Get("to")
 	from = r.URL.Query().Get("from")
 	if !validDate(to) {
-		to = time.Now().Format("2006-01-02")
+		to = dhakaToday()
 	}
 	if !validDate(from) {
 		if t, err := time.Parse("2006-01-02", to); err == nil {
@@ -371,9 +374,15 @@ func (s *Server) handleOwnerCostAdd(w http.ResponseWriter, r *http.Request, id *
 		op, strings.TrimSpace(req.BusID), req.Category, req.Amount, req.IncurredOn, strings.TrimSpace(req.Note), id.StaffID).
 		Scan(&expenseID)
 	if err != nil {
-		// No row returned means the bus was not this operator's, which is the
-		// only WHERE that can fail; anything else is a real error.
-		fail(w, 400, "bad_bus", "That bus is not in your fleet.")
+		// No row returned means the bus was not this operator's, which is the only
+		// WHERE that can fail. A dropped connection or timeout is NOT that, and must
+		// not be reported to the owner as an invalid bus with no trace in the log.
+		if errors.Is(err, pgx.ErrNoRows) {
+			fail(w, 400, "bad_bus", "That bus is not in your fleet.")
+			return
+		}
+		s.log.Error("owner cost add", "err", err)
+		fail(w, 500, "cost_failed", "The cost could not be recorded. Please try again.")
 		return
 	}
 

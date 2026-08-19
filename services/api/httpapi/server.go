@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -214,6 +216,32 @@ func bearer(r *http.Request) string {
 // scopeOperator returns the operator a staff member may act for. Platform
 // staff may name one; operator staff are pinned to their own and cannot widen
 // it by passing a query parameter.
+var (
+	corsOnce     sync.Once
+	corsAllow    map[string]bool
+	corsWildcard bool
+)
+
+// corsConfig parses ALLOWED_ORIGINS once: a comma-separated allow-list of exact
+// origins for production, or, when unset, a wildcard for local development so the
+// stack runs with no configuration.
+func corsConfig() (map[string]bool, bool) {
+	corsOnce.Do(func() {
+		raw := strings.TrimSpace(os.Getenv("ALLOWED_ORIGINS"))
+		if raw == "" {
+			corsWildcard = true
+			return
+		}
+		corsAllow = map[string]bool{}
+		for _, o := range strings.Split(raw, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				corsAllow[o] = true
+			}
+		}
+	})
+	return corsAllow, corsWildcard
+}
+
 func scopeOperator(id *staff.Identity, requested string) string {
 	if id.OperatorID != "" {
 		return id.OperatorID
@@ -230,10 +258,30 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-Request-Id", reqID)
 
-	// The web app is served from a different origin in development.
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// CORS. With no ALLOWED_ORIGINS configured (development) any origin is
+	// reflected so the local web app just works; in production the env names the
+	// exact web and staff origins and anything else gets no CORS grant. Auth is a
+	// bearer token, never a cookie, so this is defence in depth over the admin and
+	// staff surfaces rather than the CSRF boundary.
+	allow, wildcard := corsConfig()
+	if wildcard {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	} else if origin := r.Header.Get("Origin"); origin != "" && allow[origin] {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Add("Vary", "Origin")
+	}
 	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Idempotency-Key,X-Request-Id,Authorization")
+
+	// Security headers on every response. HSTS only in production, where the
+	// service is actually behind TLS.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Frame-Options", "DENY")
+	if !notProduction() {
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+	}
+
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return

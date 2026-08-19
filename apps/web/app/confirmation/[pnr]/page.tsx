@@ -18,19 +18,20 @@ export default function ConfirmationPage({ params }: { params: Promise<{ pnr: st
   // claiming failure the instant the page loads ahead of the callback.
   useEffect(() => {
     let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const load = () => {
       api.booking(pnr)
         .then((b) => {
           if (!alive) return;
           setBooking(b);
           if (b.status !== 'TICKETED' && tries < 6) {
-            setTimeout(() => setTries((n) => n + 1), 900);
+            timer = setTimeout(() => setTries((n) => n + 1), 900);
           }
         })
         .catch((e: ApiError) => alive && setError(e.message));
     };
     load();
-    return () => { alive = false; };
+    return () => { alive = false; if (timer) clearTimeout(timer); };
   }, [pnr, tries]);
 
   if (error) return <div className="page container-narrow"><ErrorNotice message={error} /></div>;
