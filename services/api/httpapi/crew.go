@@ -500,6 +500,10 @@ func (s *Server) handleCrewSale(w http.ResponseWriter, r *http.Request, id *staf
 	})
 	if err != nil {
 		_ = s.inv.ReleaseHold(ctx, hold.HoldID, "BOOKING_FAILED")
+		if errors.Is(err, commerce.ErrOperatorInactive) {
+			fail(w, 409, "operator_inactive", "This operator is not active, so it cannot sell tickets.")
+			return
+		}
 		s.log.Error("crew booking", "err", err)
 		fail(w, 500, "booking_failed", "The booking could not be created.")
 		return

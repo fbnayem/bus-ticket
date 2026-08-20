@@ -132,7 +132,26 @@ type statusRequest struct {
 	Status string `json:"status"`
 }
 
+// operatorTransitions is the operator account lifecycle. TERMINATED is terminal —
+// a terminated tenant cannot be resurrected — so an attacker (or a slip) cannot
+// flip it back to ACTIVE. Mirrors the trip state machine's shape.
+var operatorTransitions = map[string][]string{
+	"PENDING":    {"ACTIVE", "BLOCKED", "TERMINATED"},
+	"ACTIVE":     {"SUSPENDED", "BLOCKED", "TERMINATED"},
+	"SUSPENDED":  {"ACTIVE", "BLOCKED", "TERMINATED"},
+	"BLOCKED":    {"ACTIVE", "SUSPENDED", "TERMINATED"},
+	"TERMINATED": {},
+}
+
 func (s *Server) handleOperatorStatus(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	// Platform-only: an operator user must never change an operator's account
+	// status — not even their own. The permission guard alone is not enough,
+	// because a stray grant (as OPERATOR_OWNER once had) would re-open it; this
+	// belt refuses any caller that is scoped to an operator.
+	if id.OperatorID != "" {
+		fail(w, 403, "forbidden", "Only platform staff may change an operator's status.")
+		return
+	}
 	operatorID := r.PathValue("operatorID")
 	var req statusRequest
 	if err := decode(r, &req); err != nil {
@@ -146,8 +165,31 @@ func (s *Server) handleOperatorStatus(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 	var before string
-	_ = s.pool.QueryRow(r.Context(),
-		`SELECT status FROM catalog.operators WHERE operator_id=$1::uuid`, operatorID).Scan(&before)
+	if err := s.pool.QueryRow(r.Context(),
+		`SELECT status FROM catalog.operators WHERE operator_id=$1::uuid`, operatorID).Scan(&before); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			fail(w, 404, "not_found", "No operator with that id.")
+			return
+		}
+		fail(w, 500, "query_failed", "Could not load that operator.")
+		return
+	}
+	if req.Status == before {
+		writeJSON(w, 200, map[string]any{"operator_id": operatorID, "from": before, "status": before})
+		return
+	}
+	// Enforce the lifecycle: no arbitrary jumps, and no coming back from TERMINATED.
+	legal := false
+	for _, to := range operatorTransitions[before] {
+		if to == req.Status {
+			legal = true
+			break
+		}
+	}
+	if !legal {
+		fail(w, 409, "illegal_transition", "An operator cannot go from "+before+" to "+req.Status+".")
+		return
+	}
 	if _, err := s.pool.Exec(r.Context(),
 		`UPDATE catalog.operators SET status=$2 WHERE operator_id=$1::uuid`, operatorID, req.Status); err != nil {
 		fail(w, 500, "update_failed", "The status could not be changed.")

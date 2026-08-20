@@ -120,12 +120,18 @@ func (s *Server) handleCreateHold(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) fareFor(r *http.Request, tripID string, board, drop int) (int64, error) {
+	// Deterministic and matched to what search shows: the cheapest current fare
+	// for the leg. Without the ORDER BY, a leg priced in more than one class or
+	// version returned an arbitrary row, so the price a passenger was charged
+	// could differ from the one they saw in search. (Per-seat-class pricing is a
+	// separate, larger change — tracked with the seat-layout fare_class work.)
 	var fare int64
 	err := s.pool.QueryRow(r.Context(), `
 		SELECT f.amount_poisha
 		  FROM catalog.trips t
 		  JOIN catalog.route_fares f ON f.route_id = t.route_id
 		 WHERE t.trip_id = $1::uuid AND f.from_stop_seq = $2 AND f.to_stop_seq = $3
+		 ORDER BY f.amount_poisha ASC, f.version DESC
 		 LIMIT 1`, tripID, board, drop).Scan(&fare)
 	return fare, err
 }
@@ -340,6 +346,10 @@ func (s *Server) handleCreateBooking(w http.ResponseWriter, r *http.Request) {
 		Channel: "WEB", TotalPoisha: pb.TotalPoisha,
 	})
 	if err != nil {
+		if errors.Is(err, commerce.ErrOperatorInactive) {
+			fail(w, 409, "operator_inactive", "This service is not available for booking right now.")
+			return
+		}
 		s.log.Error("create booking", "err", err)
 		fail(w, 500, "booking_failed", "We could not create your booking. Please try again.")
 		return

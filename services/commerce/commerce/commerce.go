@@ -38,10 +38,11 @@ type InventoryClient interface {
 }
 
 var (
-	ErrBookingNotFound = errors.New("commerce: booking not found")
-	ErrAmountMismatch  = errors.New("commerce: webhook amount does not match booking")
-	ErrCurrency        = errors.New("commerce: unsupported currency")
-	ErrBadSignature    = errors.New("commerce: webhook signature invalid")
+	ErrBookingNotFound  = errors.New("commerce: booking not found")
+	ErrAmountMismatch   = errors.New("commerce: webhook amount does not match booking")
+	ErrCurrency         = errors.New("commerce: unsupported currency")
+	ErrBadSignature     = errors.New("commerce: webhook signature invalid")
+	ErrOperatorInactive = errors.New("commerce: operator is not active")
 )
 
 type Service struct {
@@ -83,6 +84,22 @@ func (s *Service) CreateBooking(ctx context.Context, req BookingRequest) (bookin
 		return "", "", err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Only an ACTIVE operator may take a booking. This is the single chokepoint
+	// every sales channel funnels through, so it is the authoritative block —
+	// search hides a suspended operator's trips, and this refuses one even if a
+	// stale hold or a direct API call reaches this far.
+	var opStatus string
+	if err := tx.QueryRow(ctx,
+		`SELECT status FROM catalog.operators WHERE operator_id=$1::uuid`, req.OperatorID).Scan(&opStatus); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", ErrOperatorInactive
+		}
+		return "", "", err
+	}
+	if opStatus != "ACTIVE" {
+		return "", "", ErrOperatorInactive
+	}
 
 	err = tx.QueryRow(ctx, `
 		INSERT INTO commerce.bookings

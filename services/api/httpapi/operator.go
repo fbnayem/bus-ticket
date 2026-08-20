@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -535,10 +536,42 @@ func (s *Server) handleSetFare(w http.ResponseWriter, r *http.Request, id *staff
 		fail(w, 500, "fare_failed", "The fare could not be published.")
 		return
 	}
+	// Push the new price into search now. Without this the projected legs keep the
+	// old (or, for a route being priced for the first time, the withheld) fare
+	// until the next 6-hourly reindex — so a fresh route looks unsellable and a
+	// correction is invisible for hours.
+	s.reindexRoute(ctx, req.RouteID)
 	s.stf.Audit(ctx, id, "fare.publish", "route:"+req.RouteID, "")
 	writeJSON(w, 201, map[string]any{
 		"fare_id": fareID, "version": version, "amount_poisha": req.AmountPoisha,
 	})
+}
+
+// reindexRoute reprojects every future trip of a route into the search index. It
+// is best-effort (the 6-hourly full reindex is the backstop) and collects the
+// trip ids before reindexing so it never holds a pool row-cursor while IndexTrip
+// runs its own queries.
+func (s *Server) reindexRoute(ctx context.Context, routeID string) {
+	if s.idx == nil {
+		return
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT trip_id::text FROM catalog.trips
+		  WHERE route_id=$1::uuid AND service_date >= catalog.bd_today()`, routeID)
+	if err != nil {
+		return
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		_ = s.idx.IndexTrip(ctx, id)
+	}
 }
 
 func (s *Server) handleOperatorSchedules(w http.ResponseWriter, r *http.Request, id *staff.Identity) {

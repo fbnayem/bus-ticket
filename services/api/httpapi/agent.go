@@ -197,6 +197,10 @@ func (s *Server) handleAgentSale(w http.ResponseWriter, r *http.Request, id *sta
 	if err != nil {
 		_ = s.wal.Release(ctx, walletHoldID, "BOOKING_FAILED")
 		_ = s.inv.ReleaseHold(ctx, hold.HoldID, "BOOKING_FAILED")
+		if errors.Is(err, commerce.ErrOperatorInactive) {
+			fail(w, 409, "operator_inactive", "This operator is not active, so it cannot sell tickets.")
+			return
+		}
 		s.log.Error("agent booking", "err", err)
 		fail(w, 500, "booking_failed", "The booking could not be created.")
 		return

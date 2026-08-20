@@ -363,6 +363,10 @@ func (s *Server) handleCounterSale(w http.ResponseWriter, r *http.Request, id *s
 	})
 	if err != nil {
 		_ = s.inv.ReleaseHold(ctx, hold.HoldID, "BOOKING_FAILED")
+		if errors.Is(err, commerce.ErrOperatorInactive) {
+			fail(w, 409, "operator_inactive", "This operator is not active, so it cannot sell tickets.")
+			return
+		}
 		s.log.Error("counter booking", "err", err)
 		fail(w, 500, "booking_failed", "The booking could not be created.")
 		return

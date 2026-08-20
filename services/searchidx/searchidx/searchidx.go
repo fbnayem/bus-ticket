@@ -63,7 +63,7 @@ SELECT t.trip_id, f.stop_seq, d.stop_seq, f.location_id, d.location_id, lf.name,
        bt.name, bt.class, b.registration, bt.is_ac,
        COALESCE((SELECT array_agg(am.amenity ORDER BY am.amenity)
                    FROM catalog.bus_amenities am WHERE am.bus_id = t.bus_id), '{}'),
-       COALESCE(fare.amount_poisha, 0),
+       fare.amount_poisha,
        inv.seat_count,
        (SELECT count(*) FROM inventory.trip_seats ts
          WHERE ts.trip_id = t.trip_id
@@ -82,8 +82,19 @@ SELECT t.trip_id, f.stop_seq, d.stop_seq, f.location_id, d.location_id, lf.name,
   JOIN catalog.buses b        ON b.bus_id = t.bus_id
   JOIN catalog.bus_types bt   ON bt.bus_type_id = b.bus_type_id
   JOIN inventory.trip_inventory inv ON inv.trip_id = t.trip_id
-  LEFT JOIN catalog.route_fares fare ON fare.route_id = t.route_id
-        AND fare.from_stop_seq = f.stop_seq AND fare.to_stop_seq = d.stop_seq
+  -- Exactly one fare per leg, and NO leg without one. A plain LEFT JOIN with
+  -- COALESCE(...,0) surfaced unpriced legs as bookable free tickets, and a route
+  -- priced in two classes returned two rows per leg, making the ON CONFLICT below
+  -- hit the same (trip,board,drop) key twice and crash the whole reindex. The
+  -- lateral collapses each leg to the cheapest current fare (the "from" price);
+  -- if none is published, the leg is dropped and never goes on sale.
+  JOIN LATERAL (
+        SELECT rf.amount_poisha FROM catalog.route_fares rf
+         WHERE rf.route_id = t.route_id
+           AND rf.from_stop_seq = f.stop_seq AND rf.to_stop_seq = d.stop_seq
+         ORDER BY rf.amount_poisha ASC, rf.version DESC
+         LIMIT 1
+  ) fare ON true
  WHERE ($1::uuid IS NULL OR t.trip_id = $1::uuid)
    AND ($1::uuid IS NOT NULL OR t.service_date BETWEEN catalog.bd_today() AND catalog.bd_today() + $2::int)
 ON CONFLICT (trip_id, board_seq, drop_seq) DO UPDATE SET
@@ -298,6 +309,11 @@ func (ix *Indexer) Query(ctx context.Context, p Params) (*Response, error) {
 		 WHERE l.origin_id = $1::uuid AND l.dest_id = $2::uuid
 		   AND l.service_date = $3::date
 		   AND l.status IN ('SCHEDULED','OPEN','BOARDING')
+		   -- Only an ACTIVE operator's trips are sellable. Checked at query time
+		   -- against the live operator row, not baked into the leg, so suspending
+		   -- an operator hides their trips immediately even if the index is stale.
+		   AND EXISTS (SELECT 1 FROM catalog.operators o
+		                WHERE o.operator_id = l.operator_id AND o.status = 'ACTIVE')
 		   AND l.seats_free >= $4
 		   AND ($5 = '' OR l.operator_id::text = $5)
 		   AND (NOT $6 OR l.is_ac)
