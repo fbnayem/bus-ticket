@@ -46,6 +46,26 @@ func greenLineBus(t *testing.T) string {
 	return busID
 }
 
+// freshBus stands up a brand-new Green Line bus on its own layout, so a schedule
+// test does not collide with a seeded bus that already occupies a departure slot
+// — the bus-double-booking guard would otherwise refuse the setup itself.
+func freshBus(t *testing.T, s *Server, id *staff.Identity, tag string) string {
+	t.Helper()
+	layoutID := createLayout(t, s, id, tag+" Deck")
+	var busType, busID string
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT bus_type_id::text FROM catalog.bus_types LIMIT 1`).Scan(&busType); err != nil {
+		t.Fatal(err)
+	}
+	if err := testPool.QueryRow(context.Background(), `
+		INSERT INTO catalog.buses (operator_id, registration, bus_type_id, layout_id, status)
+		VALUES ($1::uuid, $2||'-'||substr(gen_random_uuid()::text,1,8), $3::uuid, $4::uuid, 'ACTIVE')
+		RETURNING bus_id::text`, greenLineOperator, tag, busType, layoutID).Scan(&busID); err != nil {
+		t.Fatal(err)
+	}
+	return busID
+}
+
 func postSchedule(s *Server, id *staff.Identity, routeID, busID string, mask int) *httptest.ResponseRecorder {
 	from := time.Now().Format("2006-01-02")
 	body, _ := json.Marshal(scheduleRequest{
@@ -66,7 +86,7 @@ func TestScheduleGeneratesTripsAndDeleteGuard(t *testing.T) {
 	id := ownerID()
 
 	routeID := createRoute(t, s, id, "Sched Test Route")
-	busID := greenLineBus(t)
+	busID := freshBus(t, s, id, "SCHEDGEN")
 
 	rec := postSchedule(s, id, routeID, busID, 127) // every day
 	if rec.Code != 201 {
@@ -114,6 +134,37 @@ func TestScheduleGeneratesTripsAndDeleteGuard(t *testing.T) {
 	s.handleEndSchedule(end, ereq, id)
 	if end.Code != 200 {
 		t.Fatalf("ending a schedule should succeed, got %d: %s", end.Code, end.Body.String())
+	}
+}
+
+// One physical bus cannot leave on two departures at the same wall-clock time on
+// a day both schedules run. The guard keys on the day bitmask intersecting: a
+// schedule on Monday and one on Tuesday share the same bus and time without
+// clash, but a third that runs Monday+Tuesday collides with both. Remove the
+// busDepartureClash check and the colliding schedule is accepted (201), quietly
+// promising one coach to two routes at once.
+func TestScheduleRejectsBusDoubleBooking(t *testing.T) {
+	requireDB(t)
+	s := schedServer()
+	id := ownerID()
+
+	// A dedicated bus, so no seeded schedule already occupies its 23:00 slot.
+	busID := freshBus(t, s, id, "DBLBOOK")
+	routeID := createRoute(t, s, id, "Double Book Route")
+
+	// Monday at 23:00 — accepted.
+	if rec := postSchedule(s, id, routeID, busID, 1); rec.Code != 201 {
+		t.Fatalf("first schedule (Mon) should be accepted, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// Tuesday at 23:00 on the same bus — a different day, so no clash.
+	if rec := postSchedule(s, id, routeID, busID, 2); rec.Code != 201 {
+		t.Fatalf("a same-bus schedule on a non-overlapping day should be accepted, got %d: %s",
+			rec.Code, rec.Body.String())
+	}
+	// Monday+Tuesday at 23:00 — collides with both of the above.
+	if rec := postSchedule(s, id, routeID, busID, 3); rec.Code != 409 {
+		t.Fatalf("a schedule double-booking the bus should be refused with 409, got %d: %s",
+			rec.Code, rec.Body.String())
 	}
 }
 

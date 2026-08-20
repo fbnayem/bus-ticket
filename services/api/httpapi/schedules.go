@@ -82,18 +82,36 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request, id
 		fail(w, 400, "bad_days", "Choose at least one day of the week.")
 		return
 	}
-	if _, err := time.Parse("2006-01-02", req.ValidFrom); err != nil {
+	from, err := time.Parse("2006-01-02", req.ValidFrom)
+	if err != nil {
 		fail(w, 400, "bad_date", "Enter a start date.")
 		return
 	}
 	if req.ValidTo != "" {
-		if _, err := time.Parse("2006-01-02", req.ValidTo); err != nil {
+		to, err := time.Parse("2006-01-02", req.ValidTo)
+		if err != nil {
 			fail(w, 400, "bad_date", "That end date could not be read.")
+			return
+		}
+		// An end before the start generates nothing and reads as a typo, not intent.
+		if to.Before(from) {
+			fail(w, 400, "bad_date", "The end date is before the start date.")
 			return
 		}
 	}
 	if ok, msg := s.operatorOwnsRouteAndBus(r, op, req.RouteID, req.BusID); !ok {
 		fail(w, 403, "forbidden", msg)
+		return
+	}
+	// A bus is one physical vehicle: it cannot leave on two departures at the same
+	// wall-clock time on days that overlap while both schedules are live. Guard the
+	// concrete double-booking — same bus, same depart time, intersecting days_mask
+	// and intersecting validity window — so an operator can't put one coach on two
+	// routes at 10 PM. (Different departure times that still overlap in transit are
+	// not caught here; that needs journey duration and is a separate check.)
+	if conflict, other := s.busDepartureClash(r, req.BusID, req.DepartLocal, req.DaysMask, req.ValidFrom, req.ValidTo); conflict {
+		fail(w, 409, "bus_double_booked",
+			"That bus already leaves at "+req.DepartLocal+" on one of those days (schedule "+other+"). One bus can't run two departures at once.")
 		return
 	}
 
@@ -215,6 +233,27 @@ func (s *Server) handleCreateOneOffTrip(w http.ResponseWriter, r *http.Request, 
 	}
 	s.stf.Audit(r.Context(), id, "trip.oneoff", "trip:"+tripID, req.Date)
 	writeJSON(w, 201, map[string]any{"trip_id": tripID, "seats": seats})
+}
+
+// busDepartureClash reports whether this bus is already committed to another
+// live schedule leaving at the same wall-clock time on any day this one runs.
+// Two schedules clash when their days_mask bits intersect AND their validity
+// windows overlap (a NULL valid_to is open-ended, so it is treated as +infinity).
+func (s *Server) busDepartureClash(r *http.Request, busID, departLocal string, daysMask int, validFrom, validTo string) (bool, string) {
+	var other string
+	err := s.pool.QueryRow(r.Context(), `
+		SELECT schedule_id::text FROM catalog.schedules
+		 WHERE bus_id = $1::uuid
+		   AND depart_local = $2::time
+		   AND (days_mask & $3) <> 0
+		   AND valid_from <= COALESCE(NULLIF($5,'')::date, 'infinity'::date)
+		   AND COALESCE(valid_to, 'infinity'::date) >= $4::date
+		 LIMIT 1`,
+		busID, departLocal, daysMask, validFrom, validTo).Scan(&other)
+	if err != nil {
+		return false, "" // no row => no clash; a real error surfaces on the insert
+	}
+	return true, other
 }
 
 func (s *Server) scheduleOwner(r *http.Request, scheduleID string) (string, bool) {

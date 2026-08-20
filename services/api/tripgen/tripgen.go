@@ -122,6 +122,22 @@ func (g *Generator) Generate(ctx context.Context, days int) (Result, error) {
 			departAt := time.Date(date.Year(), date.Month(), date.Day(),
 				s.departLocal.Hour(), s.departLocal.Minute(), 0, 0, dhaka)
 
+			// Resolve the seat map first: a trip with no seats is unsellable dead
+			// weight on the board, so a layout that yields none is skipped before any
+			// trip row is written rather than materialised empty.
+			seats, ok := layoutCache[s.layoutID]
+			if !ok {
+				var serr error
+				seats, serr = g.inv.SeatsFromLayout(ctx, s.layoutID)
+				if serr != nil {
+					return res, fmt.Errorf("layout %s: %w", s.layoutID, serr)
+				}
+				layoutCache[s.layoutID] = seats
+			}
+			if len(seats) == 0 {
+				continue // empty layout: nothing to sell, so no trip
+			}
+
 			var tripID string
 			err := g.pool.QueryRow(ctx, `
 				INSERT INTO catalog.trips
@@ -136,14 +152,6 @@ func (g *Generator) Generate(ctx context.Context, days int) (Result, error) {
 				continue // already generated for this date
 			}
 
-			seats, ok := layoutCache[s.layoutID]
-			if !ok {
-				seats, err = g.inv.SeatsFromLayout(ctx, s.layoutID)
-				if err != nil {
-					return res, fmt.Errorf("layout %s: %w", s.layoutID, err)
-				}
-				layoutCache[s.layoutID] = seats
-			}
 			if err := g.inv.OpenTrip(ctx, tripID, s.segmentCount, seats); err != nil {
 				return res, fmt.Errorf("open trip %s: %w", tripID, err)
 			}
@@ -196,6 +204,16 @@ func (g *Generator) CreateOneOff(ctx context.Context, operatorID, routeID, busID
 		return "", 0, fmt.Errorf("route has too few stops")
 	}
 
+	// Resolve the seats before writing the trip: an empty layout would otherwise
+	// produce a trip with no inventory that a passenger could open but never book.
+	seats, err := g.inv.SeatsFromLayout(ctx, layoutID)
+	if err != nil {
+		return "", 0, fmt.Errorf("layout %s: %w", layoutID, err)
+	}
+	if len(seats) == 0 {
+		return "", 0, fmt.Errorf("bus layout has no seats")
+	}
+
 	var tripID string
 	if err := g.pool.QueryRow(ctx, `
 		INSERT INTO catalog.trips
@@ -207,10 +225,6 @@ func (g *Generator) CreateOneOff(ctx context.Context, operatorID, routeID, busID
 		return "", 0, fmt.Errorf("insert trip: %w", err)
 	}
 
-	seats, err := g.inv.SeatsFromLayout(ctx, layoutID)
-	if err != nil {
-		return "", 0, fmt.Errorf("layout %s: %w", layoutID, err)
-	}
 	if err := g.inv.OpenTrip(ctx, tripID, segments, seats); err != nil {
 		return "", 0, fmt.Errorf("open trip %s: %w", tripID, err)
 	}

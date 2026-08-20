@@ -174,8 +174,10 @@ func (s *Server) handleRouteDetail(w http.ResponseWriter, r *http.Request, id *s
 			"is_boarding": board, "is_dropping": drop,
 		})
 	}
+	farePairs, fullyPriced := s.routeFareCoverage(r, routeID, len(stops))
 	writeJSON(w, 200, map[string]any{
 		"route_id": routeID, "name": name, "editable": !hasTrips, "stops": stops,
+		"fare_pairs": farePairs, "fully_priced": fullyPriced,
 	})
 }
 
@@ -240,6 +242,25 @@ func (s *Server) handleSetRouteStops(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 
+	// A fare and a segment time are keyed by stop_seq, and stop_seq only means
+	// anything relative to which place sits at that ordinal. If the places change
+	// — a stop inserted, removed or reordered — every surviving fare and segment
+	// time silently re-attaches to a different journey. So decide up front whether
+	// the *places* moved: read the current ordered location list and compare it to
+	// the proposed one. Identical means this edit only toggled boarding/dropping
+	// flags, and the prices stand; anything else remaps the ordinals and the old
+	// prices must go rather than be quietly misattributed.
+	oldLocs, err := s.routeLocationSeq(r, routeID)
+	if err != nil {
+		fail(w, 500, "route_failed", "The stops could not be saved.")
+		return
+	}
+	newLocs := make([]string, len(req.Stops))
+	for i, st := range req.Stops {
+		newLocs[i] = st.LocationID
+	}
+	placesChanged := !sameStrings(oldLocs, newLocs)
+
 	tx, err := s.pool.Begin(r.Context())
 	if err != nil {
 		fail(w, 500, "route_failed", "The stops could not be saved.")
@@ -255,14 +276,20 @@ func (s *Server) handleSetRouteStops(w http.ResponseWriter, r *http.Request, id 
 		fail(w, 400, "bad_stops", "One of those stops is not a known place.")
 		return
 	}
-	// Any fare that referenced a stop past the new end is now meaningless; drop
-	// exactly those and leave the rest, so a shortened route does not carry a
-	// fare to a stop that no longer exists.
-	if _, err := tx.Exec(r.Context(),
-		`DELETE FROM catalog.route_fares WHERE route_id=$1::uuid AND to_stop_seq > $2`,
-		routeID, len(req.Stops)-1); err != nil {
-		fail(w, 500, "route_failed", "The stops could not be saved.")
-		return
+	if placesChanged {
+		// The seq->place map changed, so nothing keyed by seq can be trusted. Clear
+		// this route's fares and segment times together; the operator re-prices the
+		// new shape, and #19's coverage flag tells them it needs doing.
+		if _, err := tx.Exec(r.Context(),
+			`DELETE FROM catalog.route_fares WHERE route_id=$1::uuid`, routeID); err != nil {
+			fail(w, 500, "route_failed", "The stops could not be saved.")
+			return
+		}
+		if _, err := tx.Exec(r.Context(),
+			`DELETE FROM catalog.route_segment_minutes WHERE route_id=$1::uuid`, routeID); err != nil {
+			fail(w, 500, "route_failed", "The stops could not be saved.")
+			return
+		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		fail(w, 500, "route_failed", "The stops could not be saved.")
@@ -280,4 +307,56 @@ func (s *Server) routeOwner(r *http.Request, routeID string) (string, bool) {
 		return "", false
 	}
 	return owner, true
+}
+
+// routeLocationSeq returns a route's stop places in ordinal order, so a stop
+// edit can be compared place-for-place against the existing sequence.
+func (s *Server) routeLocationSeq(r *http.Request, routeID string) ([]string, error) {
+	rows, err := s.pool.Query(r.Context(),
+		`SELECT location_id::text FROM catalog.route_stops WHERE route_id=$1::uuid ORDER BY stop_seq`, routeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var loc string
+		if err := rows.Scan(&loc); err != nil {
+			return nil, err
+		}
+		out = append(out, loc)
+	}
+	return out, rows.Err()
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// routeFareCoverage reports how completely a route is priced. A leg from stop i
+// to stop j can only be sold if a fare covers it, and after #3 the search index
+// withholds any leg it can't price — so an operator who set a name and stops but
+// no fares would see their route simply not appear, with no hint why. These two
+// figures drive a plain "priced / needs pricing" badge: fare_pairs is how many
+// distinct (from,to) fares exist, and fully_priced is whether the end-to-end
+// journey (first stop to last) — the one every route must sell — has a fare.
+func (s *Server) routeFareCoverage(r *http.Request, routeID string, stopCount int) (pairs int, fullyPriced bool) {
+	_ = s.pool.QueryRow(r.Context(),
+		`SELECT count(DISTINCT (from_stop_seq, to_stop_seq)) FROM catalog.route_fares WHERE route_id=$1::uuid`,
+		routeID).Scan(&pairs)
+	if stopCount >= 2 {
+		_ = s.pool.QueryRow(r.Context(), `
+			SELECT EXISTS (SELECT 1 FROM catalog.route_fares
+			                WHERE route_id=$1::uuid AND from_stop_seq=0 AND to_stop_seq=$2)`,
+			routeID, stopCount-1).Scan(&fullyPriced)
+	}
+	return pairs, fullyPriced
 }

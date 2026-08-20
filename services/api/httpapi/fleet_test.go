@@ -99,6 +99,66 @@ func TestLayoutLocksAfterATripIsSold(t *testing.T) {
 	}
 }
 
+// The immutability gate must follow the *trip's* snapshotted layout, not the
+// bus's current one. A bus can be reassigned to a new layout after it has
+// already run trips; the old layout still interprets every ticket sold on those
+// trips, so it must stay locked forever. The buggy join reached the layout
+// through the bus (trips JOIN buses ON ... WHERE b.layout_id = sl.layout_id), so
+// the instant the bus was repointed the old layout looked unused and editable —
+// silently corrupting the seat map behind sold tickets. Reading trips.layout_id
+// directly is the fix. Reassign the bus below and the old layout must still be
+// refused; revert the join and this returns 200.
+func TestLayoutStaysLockedAfterBusReassigned(t *testing.T) {
+	requireDB(t)
+	ctx := context.Background()
+	s := ownerServer()
+	id := ownerID()
+
+	oldLayout := createLayout(t, s, id, "Reassign Old Deck")
+	newLayout := createLayout(t, s, id, "Reassign New Deck")
+
+	var routeID, busID, busType string
+	if err := testPool.QueryRow(ctx,
+		`SELECT bus_type_id::text FROM catalog.bus_types LIMIT 1`).Scan(&busType); err != nil {
+		t.Fatal(err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO catalog.routes (operator_id, name)
+		VALUES ($1::uuid,'Reassign Test Route') RETURNING route_id::text`, greenLineOperator).Scan(&routeID); err != nil {
+		t.Fatal(err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO catalog.buses (operator_id, registration, bus_type_id, layout_id, status)
+		VALUES ($1::uuid, 'REASSIGN-'||substr(gen_random_uuid()::text,1,8), $2::uuid, $3::uuid, 'ACTIVE')
+		RETURNING bus_id::text`, greenLineOperator, busType, oldLayout).Scan(&busID); err != nil {
+		t.Fatal(err)
+	}
+	// A trip is sold on the bus while it carries the OLD layout — the ticket's seat
+	// map is oldLayout, snapshotted onto the trip.
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO catalog.trips (operator_id, route_id, bus_id, service_date, depart_at, segment_count, layout_id)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, catalog.bd_today(), now() + interval '2 hours', 1, $4::uuid)`,
+		greenLineOperator, routeID, busID, oldLayout); err != nil {
+		t.Fatal(err)
+	}
+	// Later the operator repoints the bus at a fresh layout. No bus now references
+	// the old one — but the sold trip still does.
+	if _, err := testPool.Exec(ctx,
+		`UPDATE catalog.buses SET layout_id=$2::uuid WHERE bus_id=$1::uuid`, busID, newLayout); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := putLayout(s, id, oldLayout, "Reassign Old Deck"); rec.Code != 409 {
+		t.Fatalf("the old layout still interprets a sold ticket and must stay locked (409), got %d: %s",
+			rec.Code, rec.Body.String())
+	}
+	// The freshly-assigned layout has no trip against it yet, so it is still editable.
+	if rec := putLayout(s, id, newLayout, "Reassign New Deck"); rec.Code != 200 {
+		t.Fatalf("a layout with no sold trip should stay editable (200), got %d: %s",
+			rec.Code, rec.Body.String())
+	}
+}
+
 // A tenant may not pin a bus to another operator's seat map. This proves the
 // ownership check on the layout, not merely that the endpoint works.
 func TestBusRejectsAnotherOperatorsLayout(t *testing.T) {

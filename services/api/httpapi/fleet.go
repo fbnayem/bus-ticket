@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -92,9 +93,7 @@ func (s *Server) handleLayouts(w http.ResponseWriter, r *http.Request, id *staff
 		SELECT sl.layout_id::text, sl.name, sl.version, sl.decks, sl.frozen,
 		       (SELECT count(*) FROM catalog.seat_layout_items i WHERE i.layout_id = sl.layout_id),
 		       (SELECT count(*) FROM catalog.buses b WHERE b.layout_id = sl.layout_id),
-		       EXISTS (SELECT 1 FROM catalog.trips t
-		                JOIN catalog.buses b ON b.bus_id = t.bus_id
-		               WHERE b.layout_id = sl.layout_id)
+		       EXISTS (SELECT 1 FROM catalog.trips t WHERE t.layout_id = sl.layout_id)
 		  FROM catalog.seat_layouts sl
 		 WHERE ($1='' OR sl.operator_id=$1::uuid)
 		 ORDER BY sl.name, sl.version`, op)
@@ -126,9 +125,7 @@ func (s *Server) handleLayout(w http.ResponseWriter, r *http.Request, id *staff.
 	var frozen, inUse bool
 	if err := s.pool.QueryRow(r.Context(), `
 		SELECT sl.name, sl.version, sl.decks, sl.frozen,
-		       EXISTS (SELECT 1 FROM catalog.trips t
-		                JOIN catalog.buses b ON b.bus_id = t.bus_id
-		               WHERE b.layout_id = sl.layout_id)
+		       EXISTS (SELECT 1 FROM catalog.trips t WHERE t.layout_id = sl.layout_id)
 		  FROM catalog.seat_layouts sl
 		 WHERE sl.layout_id=$1::uuid AND ($2='' OR sl.operator_id=$2::uuid)`,
 		layoutID, scopeOperator(id, "")).Scan(&name, &version, &decks, &frozen, &inUse); err != nil {
@@ -171,6 +168,7 @@ func validateSeats(req *layoutRequest) string {
 		req.Decks = 1
 	}
 	seen := map[string]bool{}
+	cells := map[string]string{} // "deck/row/col" -> first seat that claimed it
 	for i := range req.Seats {
 		it := &req.Seats[i]
 		it.SeatNo = strings.TrimSpace(it.SeatNo)
@@ -184,6 +182,13 @@ func validateSeats(req *layoutRequest) string {
 		if it.Deck < 1 {
 			it.Deck = 1
 		}
+		// Two seats at the same physical cell would draw one on top of the other in
+		// the seat map and let a passenger pick a seat that visually isn't there.
+		cell := fmt.Sprintf("%d/%d/%d", it.Deck, it.Row, it.Col)
+		if other, taken := cells[cell]; taken {
+			return "Seats " + other + " and " + it.SeatNo + " sit in the same spot — give each seat its own row and column."
+		}
+		cells[cell] = it.SeatNo
 		if it.SeatType == "" {
 			it.SeatType = "NORMAL"
 		}
@@ -259,16 +264,25 @@ func (s *Server) handleUpdateLayout(w http.ResponseWriter, r *http.Request, id *
 		return
 	}
 
-	// Ownership and the immutability gate in one read: the layout must be this
-	// operator's, and it must not yet carry a sold trip.
+	tx, err := s.pool.Begin(r.Context())
+	if err != nil {
+		fail(w, 500, "layout_failed", "The layout could not be saved.")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+
+	// Ownership and the immutability gate in one read, inside the transaction and
+	// with the layout row locked FOR UPDATE. Doing the check-then-write across two
+	// separate statements let a trip appear in the gap and be sold against a seat
+	// map that was then rewritten under it; holding the row lock for the whole
+	// transaction closes that window against a concurrent edit and makes the gate
+	// and the rewrite atomic.
 	var owner string
 	var frozen, inUse bool
-	if err := s.pool.QueryRow(r.Context(), `
+	if err := tx.QueryRow(r.Context(), `
 		SELECT operator_id::text, frozen,
-		       EXISTS (SELECT 1 FROM catalog.trips t
-		                JOIN catalog.buses b ON b.bus_id = t.bus_id
-		               WHERE b.layout_id = $1::uuid)
-		  FROM catalog.seat_layouts WHERE layout_id=$1::uuid`, layoutID).
+		       EXISTS (SELECT 1 FROM catalog.trips t WHERE t.layout_id = $1::uuid)
+		  FROM catalog.seat_layouts WHERE layout_id=$1::uuid FOR UPDATE`, layoutID).
 		Scan(&owner, &frozen, &inUse); err != nil {
 		fail(w, 404, "layout_not_found", "That layout does not exist.")
 		return
@@ -283,12 +297,6 @@ func (s *Server) handleUpdateLayout(w http.ResponseWriter, r *http.Request, id *
 		return
 	}
 
-	tx, err := s.pool.Begin(r.Context())
-	if err != nil {
-		fail(w, 500, "layout_failed", "The layout could not be saved.")
-		return
-	}
-	defer tx.Rollback(r.Context()) //nolint:errcheck
 	if _, err := tx.Exec(r.Context(),
 		`UPDATE catalog.seat_layouts SET name=$2, decks=$3 WHERE layout_id=$1::uuid`,
 		layoutID, req.Name, req.Decks); err != nil {
@@ -342,6 +350,10 @@ func (s *Server) handleCreateBus(w http.ResponseWriter, r *http.Request, id *sta
 		fail(w, 400, "bad_registration", "Enter the bus registration.")
 		return
 	}
+	if strings.TrimSpace(req.BusTypeID) == "" {
+		fail(w, 400, "bus_type_required", "Choose a bus type.")
+		return
+	}
 	if req.Status == "" {
 		req.Status = "ACTIVE"
 	}
@@ -350,17 +362,25 @@ func (s *Server) handleCreateBus(w http.ResponseWriter, r *http.Request, id *sta
 		return
 	}
 	// The layout must be this operator's own — a tenant may not pin a bus to
-	// another operator's seat map. The bus type is a shared catalog, so it is
-	// only checked to exist.
+	// another operator's seat map — and it must actually have seats, or every trip
+	// generated from this bus would be an unsellable empty shell. The bus type is a
+	// shared catalog, so it is only checked to exist.
 	var layoutOwner string
-	if err := s.pool.QueryRow(r.Context(),
-		`SELECT operator_id::text FROM catalog.seat_layouts WHERE layout_id=$1::uuid`, req.LayoutID).
-		Scan(&layoutOwner); err != nil {
+	var seatCount int
+	if err := s.pool.QueryRow(r.Context(), `
+		SELECT operator_id::text,
+		       (SELECT count(*) FROM catalog.seat_layout_items i WHERE i.layout_id = sl.layout_id)
+		  FROM catalog.seat_layouts sl WHERE sl.layout_id=$1::uuid`, req.LayoutID).
+		Scan(&layoutOwner, &seatCount); err != nil {
 		fail(w, 400, "layout_not_found", "Choose a seat layout for this bus.")
 		return
 	}
 	if layoutOwner != op {
 		fail(w, 403, "forbidden", "That seat layout belongs to another operator.")
+		return
+	}
+	if seatCount == 0 {
+		fail(w, 400, "empty_layout", "That seat layout has no seats — add seats to it before assigning a bus.")
 		return
 	}
 
