@@ -13,7 +13,8 @@ interface Bus {
   bus_id: string; registration: string; bus_type: string; is_ac: boolean;
   class: string; status: string; layout: string; seats: number; amenities: string;
 }
-interface BusType { bus_type_id: string; name: string; is_ac: boolean; class: string; }
+interface BusType { bus_type_id: string; name: string; is_ac: boolean; class: string; custom?: boolean; }
+const BUS_CLASSES = ['ECONOMY', 'BUSINESS', 'PREMIUM', 'SLEEPER'];
 interface Layout { layout_id: string; name: string; version: number; decks: number; seats: number; buses: number; editable: boolean; }
 
 const STATUSES = ['ACTIVE', 'MAINTENANCE', 'OUT_OF_SERVICE', 'RESERVED', 'DECOMMISSIONED'];
@@ -27,6 +28,7 @@ export default function FleetPage() {
   const [loading, setLoading] = useState(true);
   const [addingBus, setAddingBus] = useState(false);
   const [buildingLayout, setBuildingLayout] = useState(false);
+  const [addingType, setAddingType] = useState(false);
 
   const mayWrite = can(session?.identity ?? null, 'fleet.write');
 
@@ -50,6 +52,7 @@ export default function FleetPage() {
       <PageHead title="Fleet" sub="Buses, their seat layouts and what is fitted"
         actions={mayWrite && (
           <div className="row" style={{ gap: '.4rem' }}>
+            <button className="btn btn-ghost" onClick={() => setAddingType(true)}>New bus type</button>
             <button className="btn btn-ghost" onClick={() => setBuildingLayout(true)}>New layout</button>
             <button className="btn btn-brand" disabled={layouts.length === 0}
                     onClick={() => setAddingBus(true)}>Add bus</button>
@@ -133,6 +136,69 @@ export default function FleetPage() {
         <SeatLayoutBuilder onClose={() => setBuildingLayout(false)}
                            onSaved={() => { setBuildingLayout(false); load(); }} />
       )}
+      {addingType && (
+        <NewBusTypeSheet onClose={() => setAddingType(false)}
+                         onSaved={() => { setAddingType(false); load(); }} />
+      )}
+    </div>
+  );
+}
+
+function NewBusTypeSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState('');
+  const [isAC, setIsAC] = useState(true);
+  const [cls, setCls] = useState('BUSINESS');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    if (!name.trim()) { setError('Give the bus type a name.'); return; }
+    setBusy(true); setError('');
+    try {
+      await spost('/operator/bus-types', { name: name.trim(), is_ac: isAC, class: cls });
+      onSaved();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'The bus type could not be added.');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="sheet-backdrop" onClick={() => !busy && onClose()}>
+      <div className="sheet" role="dialog" aria-modal="true" aria-label="New bus type"
+           style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-grip" />
+        <div className="stack" style={{ gap: '.9rem', padding: '0 .25rem' }}>
+          <h2 style={{ margin: 0 }}>New bus type</h2>
+          <p className="small muted" style={{ margin: 0 }}>
+            A coach model of your own — added to the shared platform types, visible
+            only to you.
+          </p>
+          <label className="stack" style={{ gap: '.25rem' }}>
+            <span className="small muted">Name</span>
+            <input className="input" value={name} autoFocus placeholder="e.g. Hyundai Universe AC Business"
+                   onChange={(e) => setName(e.target.value)} />
+          </label>
+          <div className="row" style={{ gap: '.6rem', alignItems: 'flex-end' }}>
+            <label className="stack" style={{ gap: '.25rem', flex: '1 1 160px' }}>
+              <span className="small muted">Class</span>
+              <select className="select" value={cls} onChange={(e) => setCls(e.target.value)}>
+                {BUS_CLASSES.map((c) => <option key={c} value={c}>{c.toLowerCase()}</option>)}
+              </select>
+            </label>
+            <label className="row" style={{ gap: '.4rem', alignItems: 'center', paddingBottom: '.55rem' }}>
+              <input type="checkbox" checked={isAC} onChange={(e) => setIsAC(e.target.checked)} />
+              <span className="small">Air-conditioned</span>
+            </label>
+          </div>
+          {error && <p className="small" style={{ color: 'var(--danger, #b3261e)' }}>{error}</p>}
+          <div className="row" style={{ gap: '.5rem', justifyContent: 'flex-end' }}>
+            <button className="btn btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>
+            <button className="btn btn-brand" disabled={busy} onClick={save}>
+              {busy ? 'Adding…' : 'Add bus type'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

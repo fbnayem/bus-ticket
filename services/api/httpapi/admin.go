@@ -24,6 +24,9 @@ import (
 func (s *Server) adminRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/v1/admin/overview", s.guard("operator.read", s.handleAdminOverview))
 	m.HandleFunc("GET /api/v1/admin/operators", s.guard("operator.read", s.handleAdminOperators))
+	m.HandleFunc("POST /api/v1/admin/operators", s.guard("operator.write", s.handleCreateOperator))
+	m.HandleFunc("PATCH /api/v1/admin/operators/{operatorID}",
+		s.guard("operator.write", s.handleUpdateOperator))
 	m.HandleFunc("POST /api/v1/admin/operators/{operatorID}/status",
 		s.guard("operator.write", s.handleOperatorStatus))
 	m.HandleFunc("GET /api/v1/admin/bookings", s.guard("booking.read", s.handleAdminBookings))
@@ -98,6 +101,7 @@ func (s *Server) handleAdminOverview(w http.ResponseWriter, r *http.Request, _ *
 func (s *Server) handleAdminOperators(w http.ResponseWriter, r *http.Request, _ *staff.Identity) {
 	rows, err := s.pool.Query(r.Context(), `
 		SELECT o.operator_id::text, o.brand, o.legal_name, o.status, o.created_at,
+		       COALESCE(o.vat_bin,''), o.vat_rate_bp,
 		       (SELECT count(*) FROM catalog.buses b WHERE b.operator_id=o.operator_id),
 		       (SELECT count(*) FROM catalog.routes rt WHERE rt.operator_id=o.operator_id),
 		       (SELECT count(*) FROM counter.counters c WHERE c.operator_id=o.operator_id),
@@ -112,20 +116,195 @@ func (s *Server) handleAdminOperators(w http.ResponseWriter, r *http.Request, _ 
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var oid, brand, legal, status string
+		var oid, brand, legal, status, vatBIN string
 		var created time.Time
-		var buses, routes, counters int
+		var vatRateBP, buses, routes, counters int
 		var gmv int64
-		if rows.Scan(&oid, &brand, &legal, &status, &created, &buses, &routes, &counters, &gmv) != nil {
+		if rows.Scan(&oid, &brand, &legal, &status, &created, &vatBIN, &vatRateBP, &buses, &routes, &counters, &gmv) != nil {
 			continue
 		}
 		out = append(out, map[string]any{
 			"operator_id": oid, "brand": brand, "legal_name": legal, "status": status,
-			"created_at": created, "buses": buses, "routes": routes,
+			"created_at": created, "vat_bin": vatBIN, "vat_rate_bp": vatRateBP,
+			"buses": buses, "routes": routes,
 			"counters": counters, "gmv_poisha": gmv,
 		})
 	}
 	writeJSON(w, 200, map[string]any{"operators": out})
+}
+
+// operatorOwnerRoleID is OPERATOR_OWNER, the role the first user of a new tenant
+// is provisioned with — the one account that can then create the rest of the
+// operator's staff.
+const operatorOwnerRoleID = "c0000000-0000-0000-0000-000000000011"
+
+type createOperatorRequest struct {
+	LegalName string `json:"legal_name"`
+	Brand     string `json:"brand"`
+	VATBIN    string `json:"vat_bin"`
+	VATRateBP int    `json:"vat_rate_bp"`
+	Owner     struct {
+		Email    string `json:"email"`
+		FullName string `json:"full_name"`
+		Phone    string `json:"phone"`
+		Password string `json:"password"`
+	} `json:"owner"`
+}
+
+// handleCreateOperator onboards a whole new tenant in one platform action: the
+// operator record and its first OPERATOR_OWNER login, created together so a
+// half-onboarded operator with no way in can never exist. It is platform-only —
+// an operator user cannot mint another operator — mirroring handleOperatorStatus.
+//
+// The new operator starts PENDING: it exists and its owner can sign in and
+// configure fleet, routes and fares, but #2's ACTIVE gate keeps it from selling
+// a single seat until platform staff move it to ACTIVE. Onboarding and going
+// live are deliberately two decisions.
+func (s *Server) handleCreateOperator(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	if id.OperatorID != "" {
+		fail(w, 403, "forbidden", "Only platform staff may create an operator.")
+		return
+	}
+	var req createOperatorRequest
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "That request could not be read.")
+		return
+	}
+	req.LegalName = strings.TrimSpace(req.LegalName)
+	req.Brand = strings.TrimSpace(req.Brand)
+	req.Owner.Email = strings.ToLower(strings.TrimSpace(req.Owner.Email))
+	req.Owner.FullName = strings.TrimSpace(req.Owner.FullName)
+	if req.LegalName == "" || req.Brand == "" {
+		fail(w, 400, "bad_operator", "An operator needs a legal name and a brand.")
+		return
+	}
+	if req.Owner.Email == "" || !strings.Contains(req.Owner.Email, "@") {
+		fail(w, 400, "bad_email", "Enter a valid email for the owner's login.")
+		return
+	}
+	if req.Owner.FullName == "" {
+		fail(w, 400, "bad_name", "Enter the owner's name.")
+		return
+	}
+	if len(req.Owner.Password) < 8 {
+		fail(w, 400, "weak_password", "Give the owner a password of at least 8 characters.")
+		return
+	}
+	if req.VATRateBP < 0 || req.VATRateBP > 10000 {
+		fail(w, 400, "bad_vat", "A VAT rate must be between 0 and 100 percent.")
+		return
+	}
+
+	salt, hash, iter, err := staff.NewPassword(req.Owner.Password)
+	if err != nil {
+		fail(w, 500, "operator_failed", "The operator could not be created.")
+		return
+	}
+
+	tx, err := s.pool.Begin(r.Context())
+	if err != nil {
+		fail(w, 500, "operator_failed", "The operator could not be created.")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+
+	var operatorID string
+	if err := tx.QueryRow(r.Context(), `
+		INSERT INTO catalog.operators (legal_name, brand, status, vat_bin, vat_rate_bp)
+		VALUES ($1,$2,'PENDING',NULLIF($3,''),$4) RETURNING operator_id::text`,
+		req.LegalName, req.Brand, strings.TrimSpace(req.VATBIN), req.VATRateBP).Scan(&operatorID); err != nil {
+		s.log.Error("create operator", "err", err)
+		fail(w, 500, "operator_failed", "The operator could not be created.")
+		return
+	}
+
+	var staffID string
+	if err := tx.QueryRow(r.Context(), `
+		INSERT INTO staff.staff_users (email, full_name, phone, password_hash, password_salt, password_iter, operator_id)
+		VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,$7::uuid) RETURNING staff_id::text`,
+		req.Owner.Email, req.Owner.FullName, strings.TrimSpace(req.Owner.Phone),
+		hash, salt, iter, operatorID).Scan(&staffID); err != nil {
+		if strings.Contains(err.Error(), "staff_users_email_key") {
+			fail(w, 409, "email_taken", "Someone already signs in with that email.")
+			return
+		}
+		s.log.Error("create operator owner", "err", err)
+		fail(w, 500, "operator_failed", "The owner login could not be created.")
+		return
+	}
+	if _, err := tx.Exec(r.Context(),
+		`INSERT INTO staff.user_roles (staff_id, role_id) VALUES ($1::uuid,$2::uuid)`,
+		staffID, operatorOwnerRoleID); err != nil {
+		fail(w, 500, "operator_failed", "The owner role could not be assigned.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		fail(w, 500, "operator_failed", "The operator could not be created.")
+		return
+	}
+	s.stf.Audit(r.Context(), id, "operator.create", "operator:"+operatorID, req.Brand)
+	writeJSON(w, 201, map[string]any{
+		"operator_id": operatorID, "brand": req.Brand, "status": "PENDING",
+		"owner_staff_id": staffID, "owner_email": req.Owner.Email,
+	})
+}
+
+type updateOperatorRequest struct {
+	LegalName *string `json:"legal_name"`
+	Brand     *string `json:"brand"`
+	VATBIN    *string `json:"vat_bin"`
+	VATRateBP *int    `json:"vat_rate_bp"`
+}
+
+// handleUpdateOperator edits a tenant's legal identity and VAT registration.
+// These are platform-governed, not self-service: a VAT BIN and a legal name are
+// what the platform invoices and remits against, so an operator must not be able
+// to rewrite its own tax identity. Status is a separate action with its own
+// lifecycle (handleOperatorStatus); this endpoint never touches it.
+func (s *Server) handleUpdateOperator(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	if id.OperatorID != "" {
+		fail(w, 403, "forbidden", "Only platform staff may edit an operator's identity.")
+		return
+	}
+	operatorID := r.PathValue("operatorID")
+	var req updateOperatorRequest
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "That request could not be read.")
+		return
+	}
+	if req.VATRateBP != nil && (*req.VATRateBP < 0 || *req.VATRateBP > 10000) {
+		fail(w, 400, "bad_vat", "A VAT rate must be between 0 and 100 percent.")
+		return
+	}
+	if req.LegalName != nil && strings.TrimSpace(*req.LegalName) == "" {
+		fail(w, 400, "bad_operator", "A legal name cannot be blank.")
+		return
+	}
+	if req.Brand != nil && strings.TrimSpace(*req.Brand) == "" {
+		fail(w, 400, "bad_operator", "A brand cannot be blank.")
+		return
+	}
+
+	// COALESCE keeps each field untouched unless the caller sent it, so a partial
+	// edit never blanks the columns it left out.
+	ct, err := s.pool.Exec(r.Context(), `
+		UPDATE catalog.operators SET
+		    legal_name  = COALESCE($2, legal_name),
+		    brand       = COALESCE($3, brand),
+		    vat_bin     = COALESCE(NULLIF($4,''), vat_bin),
+		    vat_rate_bp = COALESCE($5, vat_rate_bp)
+		 WHERE operator_id=$1::uuid`,
+		operatorID, req.LegalName, req.Brand, req.VATBIN, req.VATRateBP)
+	if err != nil {
+		fail(w, 500, "update_failed", "The operator could not be updated.")
+		return
+	}
+	if ct.RowsAffected() == 0 {
+		fail(w, 404, "not_found", "No operator with that id.")
+		return
+	}
+	s.stf.Audit(r.Context(), id, "operator.update", "operator:"+operatorID, "")
+	writeJSON(w, 200, map[string]any{"operator_id": operatorID})
 }
 
 type statusRequest struct {

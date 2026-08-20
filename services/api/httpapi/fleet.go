@@ -22,6 +22,7 @@ import (
 
 func (s *Server) fleetRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/v1/operator/bus-types", s.guard("fleet.read", s.handleBusTypes))
+	m.HandleFunc("POST /api/v1/operator/bus-types", s.guard("fleet.write", s.handleCreateBusType))
 	m.HandleFunc("GET /api/v1/operator/layouts", s.guard("fleet.read", s.handleLayouts))
 	m.HandleFunc("GET /api/v1/operator/layouts/{layoutID}", s.guard("fleet.read", s.handleLayout))
 	m.HandleFunc("POST /api/v1/operator/layouts", s.guard("fleet.write", s.handleCreateLayout))
@@ -64,9 +65,20 @@ type busRequest struct {
 	Status       string `json:"status"`
 }
 
+var busClasses = map[string]bool{
+	"ECONOMY": true, "BUSINESS": true, "PREMIUM": true, "SLEEPER": true,
+}
+
 func (s *Server) handleBusTypes(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
-	rows, err := s.pool.Query(r.Context(),
-		`SELECT bus_type_id::text, name, is_ac, class FROM catalog.bus_types ORDER BY name`)
+	// A caller sees the platform's global types (operator_id IS NULL) plus their
+	// own private ones — never another operator's. A platform caller (no operator
+	// scope) sees them all.
+	op := scopeOperator(id, "")
+	rows, err := s.pool.Query(r.Context(), `
+		SELECT bus_type_id::text, name, is_ac, class, operator_id IS NOT NULL
+		  FROM catalog.bus_types
+		 WHERE $1='' OR operator_id IS NULL OR operator_id=$1::uuid
+		 ORDER BY operator_id IS NOT NULL, name`, op)
 	if err != nil {
 		fail(w, 500, "query_failed", "Could not load bus types.")
 		return
@@ -75,13 +87,64 @@ func (s *Server) handleBusTypes(w http.ResponseWriter, r *http.Request, id *staf
 	out := []map[string]any{}
 	for rows.Next() {
 		var bid, name, class string
-		var isAC bool
-		if rows.Scan(&bid, &name, &isAC, &class) != nil {
+		var isAC, owned bool
+		if rows.Scan(&bid, &name, &isAC, &class, &owned) != nil {
 			continue
 		}
-		out = append(out, map[string]any{"bus_type_id": bid, "name": name, "is_ac": isAC, "class": class})
+		out = append(out, map[string]any{"bus_type_id": bid, "name": name, "is_ac": isAC, "class": class, "custom": owned})
 	}
 	writeJSON(w, 200, map[string]any{"bus_types": out})
+}
+
+type busTypeRequest struct {
+	Name  string `json:"name"`
+	IsAC  bool   `json:"is_ac"`
+	Class string `json:"class"`
+}
+
+// handleCreateBusType lets an operator add a coach model of their own — "AC
+// Business 2x2", "Non-AC Sleeper" — without a platform round-trip. It is scoped
+// to the caller's operator, so the type is private to them and can never collide
+// with or overwrite a platform-global type.
+func (s *Server) handleCreateBusType(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	op := scopeOperator(id, "")
+	if op == "" {
+		fail(w, 400, "operator_required", "A bus type must belong to an operator.")
+		return
+	}
+	var req busTypeRequest
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "That request could not be read.")
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		fail(w, 400, "bad_name", "Give the bus type a name.")
+		return
+	}
+	if req.Class == "" {
+		req.Class = "ECONOMY"
+	}
+	if !busClasses[req.Class] {
+		fail(w, 400, "bad_class", "That is not a valid class.")
+		return
+	}
+	var busTypeID string
+	err := s.pool.QueryRow(r.Context(), `
+		INSERT INTO catalog.bus_types (name, is_ac, class, operator_id)
+		VALUES ($1,$2,$3,$4::uuid) RETURNING bus_type_id::text`,
+		req.Name, req.IsAC, req.Class, op).Scan(&busTypeID)
+	if err != nil {
+		if strings.Contains(err.Error(), "bus_types_owner_name_unique") {
+			fail(w, 409, "duplicate_bus_type", "You already have a bus type with that name.")
+			return
+		}
+		s.log.Error("create bus type", "err", err)
+		fail(w, 500, "bus_type_failed", "The bus type could not be added.")
+		return
+	}
+	s.stf.Audit(r.Context(), id, "bustype.create", "bustype:"+busTypeID, req.Name)
+	writeJSON(w, 201, map[string]any{"bus_type_id": busTypeID, "name": req.Name, "is_ac": req.IsAC, "class": req.Class, "custom": true})
 }
 
 func (s *Server) handleLayouts(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
@@ -361,10 +424,19 @@ func (s *Server) handleCreateBus(w http.ResponseWriter, r *http.Request, id *sta
 		fail(w, 400, "bad_status", "That is not a valid bus status.")
 		return
 	}
+	// The bus type must be visible to this operator: a platform-global type or one
+	// of their own — never another operator's private type.
+	var typeVisible bool
+	if err := s.pool.QueryRow(r.Context(), `
+		SELECT EXISTS (SELECT 1 FROM catalog.bus_types
+		                WHERE bus_type_id=$1::uuid AND (operator_id IS NULL OR operator_id=$2::uuid))`,
+		req.BusTypeID, op).Scan(&typeVisible); err != nil || !typeVisible {
+		fail(w, 400, "bus_type_not_found", "Choose a bus type.")
+		return
+	}
 	// The layout must be this operator's own — a tenant may not pin a bus to
 	// another operator's seat map — and it must actually have seats, or every trip
-	// generated from this bus would be an unsellable empty shell. The bus type is a
-	// shared catalog, so it is only checked to exist.
+	// generated from this bus would be an unsellable empty shell.
 	var layoutOwner string
 	var seatCount int
 	if err := s.pool.QueryRow(r.Context(), `

@@ -24,6 +24,7 @@ func (s *Server) routeCrudRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/v1/operator/routes/{routeID}", s.guard("route.read", s.handleRouteDetail))
 	m.HandleFunc("PATCH /api/v1/operator/routes/{routeID}", s.guard("route.write", s.handleRenameRoute))
 	m.HandleFunc("PUT /api/v1/operator/routes/{routeID}/stops", s.guard("route.write", s.handleSetRouteStops))
+	m.HandleFunc("PUT /api/v1/operator/routes/{routeID}/segments", s.guard("route.write", s.handleSetRouteSegments))
 }
 
 type routeStopIn struct {
@@ -152,9 +153,15 @@ func (s *Server) handleRouteDetail(w http.ResponseWriter, r *http.Request, id *s
 		return
 	}
 
+	// minutes[k] is the running time from stop k to stop k+1, so a stop carries the
+	// leg time onward from it. LEFT JOIN keeps stops whose segment time is not yet
+	// set (NULL surfaces as a gap the operator can fill).
 	rows, err := s.pool.Query(r.Context(), `
-		SELECT rs.stop_seq, rs.location_id::text, l.name, rs.is_boarding, rs.is_dropping
-		  FROM catalog.route_stops rs JOIN catalog.locations l ON l.location_id = rs.location_id
+		SELECT rs.stop_seq, rs.location_id::text, l.name, rs.is_boarding, rs.is_dropping, sm.minutes
+		  FROM catalog.route_stops rs
+		  JOIN catalog.locations l ON l.location_id = rs.location_id
+		  LEFT JOIN catalog.route_segment_minutes sm
+		         ON sm.route_id = rs.route_id AND sm.from_stop_seq = rs.stop_seq
 		 WHERE rs.route_id=$1::uuid ORDER BY rs.stop_seq`, routeID)
 	if err != nil {
 		fail(w, 500, "query_failed", "Could not load the stops.")
@@ -166,12 +173,13 @@ func (s *Server) handleRouteDetail(w http.ResponseWriter, r *http.Request, id *s
 		var seq int
 		var locID, locName string
 		var board, drop bool
-		if rows.Scan(&seq, &locID, &locName, &board, &drop) != nil {
+		var minutes *int
+		if rows.Scan(&seq, &locID, &locName, &board, &drop, &minutes) != nil {
 			continue
 		}
 		stops = append(stops, map[string]any{
 			"stop_seq": seq, "location_id": locID, "name": locName,
-			"is_boarding": board, "is_dropping": drop,
+			"is_boarding": board, "is_dropping": drop, "minutes_to_next": minutes,
 		})
 	}
 	farePairs, fullyPriced := s.routeFareCoverage(r, routeID, len(stops))
@@ -179,6 +187,78 @@ func (s *Server) handleRouteDetail(w http.ResponseWriter, r *http.Request, id *s
 		"route_id": routeID, "name": name, "editable": !hasTrips, "stops": stops,
 		"fare_pairs": farePairs, "fully_priced": fullyPriced,
 	})
+}
+
+type segmentIn struct {
+	FromStopSeq int `json:"from_stop_seq"`
+	Minutes     int `json:"minutes"`
+}
+
+type routeSegmentsRequest struct {
+	Segments []segmentIn `json:"segments"`
+}
+
+// handleSetRouteSegments records how long each leg of a route takes, so the
+// board can show a realistic arrival time at every intermediate stop rather than
+// only a departure. A segment is keyed by its from-stop; minutes must be positive
+// and the from-stop must be a real, non-final stop of the route. Unlike stops and
+// fares, segment times are pure display — they touch no seat and no money — so
+// they stay editable even after trips run: correcting a drive-time estimate never
+// reinterprets a sold ticket.
+func (s *Server) handleSetRouteSegments(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
+	routeID := r.PathValue("routeID")
+	var req routeSegmentsRequest
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, "bad_request", "That request could not be read.")
+		return
+	}
+	owner, ok := s.routeOwner(r, routeID)
+	if !ok {
+		fail(w, 404, "route_not_found", "That route does not exist.")
+		return
+	}
+	if id.OperatorID != "" && id.OperatorID != owner {
+		fail(w, 403, "forbidden", "That route belongs to another operator.")
+		return
+	}
+	// The last stop has no onward leg, so a segment may start at any stop except
+	// the final one: from_stop_seq must be in 0..stopCount-2.
+	var stopCount int
+	_ = s.pool.QueryRow(r.Context(),
+		`SELECT count(*) FROM catalog.route_stops WHERE route_id=$1::uuid`, routeID).Scan(&stopCount)
+	for _, seg := range req.Segments {
+		if seg.Minutes <= 0 {
+			fail(w, 400, "bad_minutes", "Every leg's time must be more than zero minutes.")
+			return
+		}
+		if seg.FromStopSeq < 0 || seg.FromStopSeq >= stopCount-1 {
+			fail(w, 400, "bad_segment", "A leg time was given for a stop that has no next stop.")
+			return
+		}
+	}
+
+	tx, err := s.pool.Begin(r.Context())
+	if err != nil {
+		fail(w, 500, "route_failed", "The times could not be saved.")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+	for _, seg := range req.Segments {
+		if _, err := tx.Exec(r.Context(), `
+			INSERT INTO catalog.route_segment_minutes (route_id, from_stop_seq, minutes)
+			VALUES ($1::uuid,$2,$3)
+			ON CONFLICT (route_id, from_stop_seq) DO UPDATE SET minutes = EXCLUDED.minutes`,
+			routeID, seg.FromStopSeq, seg.Minutes); err != nil {
+			fail(w, 500, "route_failed", "The times could not be saved.")
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		fail(w, 500, "route_failed", "The times could not be saved.")
+		return
+	}
+	s.stf.Audit(r.Context(), id, "route.segments", "route:"+routeID, "")
+	writeJSON(w, 200, map[string]any{"route_id": routeID, "segments": len(req.Segments)})
 }
 
 func (s *Server) handleRenameRoute(w http.ResponseWriter, r *http.Request, id *staff.Identity) {
